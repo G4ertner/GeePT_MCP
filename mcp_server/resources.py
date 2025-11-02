@@ -250,6 +250,28 @@ def gravturn(conn, launch_params):
 - Monitoring: dynamic_pressure_pa (limit max‑Q), g_force, pitch/heading, apoapsis_altitude_m.
 - Use bounded loops with timeouts and logs; add SUMMARY at end.
 
+Reusable code — safe launch clamp release (avoid double-staging boosters)
+```
+def safe_release_clamps_if_stuck(v, started_at: float) -> None:
+    """
+    After initial staging, if altitude < 3 m and |vertical_speed| < 0.5 m/s
+    after ~2 seconds (still on pad), and launch clamps exist, stage once to
+    release clamps. No effect once the rocket is moving.
+    """
+    import time
+    if time.time() - started_at < 2.0:
+        return
+    f = v.flight(v.orbit.body.reference_frame)
+    alt = getattr(f, "mean_altitude", 0.0) or 0.0
+    vs = getattr(f, "vertical_speed", 0.0) or 0.0
+    if alt < 3.0 and abs(vs) < 0.5:
+        try:
+            if len(v.parts.launch_clamps) > 0:
+                v.control.activate_next_stage()
+        except Exception:
+            pass
+```
+
 Reusable code — circularize maneuver planning (MIT; krpc/krpc-library):
 ```
 def planCirc(conn):
