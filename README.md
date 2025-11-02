@@ -4,38 +4,42 @@
 
 ## Introduction
 
-The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Program into a remote‑controlled playground for AI agents and human operators.  By combining [kRPC](https://krpc.github.io/krpc/) with a rich set of mission tools, it lets you:
+"Computer, fly me to Orbit!"
+- a Kerbal's last words
 
-- Execute short, deterministic Python scripts inside a live KSP instance, with the connection and vessel objects injected for you.
-- Inspect your vessel’s blueprint, part tree, stages and engines, and export diagrams in SVG or PNG.
-- Search and retrieve pages from the KSP Wiki or the official kRPC documentation on demand.
+You always dreamed of having an agent autonomously control your spaceship? No more need to fly boring standard maneuvers like ascent to orbit, rendezvous, landings? Let the AI do them! 
+
+The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Program into a remote‑controlled playground for AI agents and human operators.  By combining [kRPC](https://krpc.github.io/krpc/) with a rich set of mission tools, it lets your LLM:
+
+- write and execute kRPC Python scripts inside your live KSP game, effectively taking control of your flight*.
+- Inspect your vessel’s blueprint, part tree, stages and engines, to have an overview of what kind of bent bird you're flying.
+- Conveniently search and retrieve pages from the KSP Wiki, as well as the official kRPC documentation, and kRPC community code snippets for best practices.
 - Access playbooks and guides that teach agents how to read blueprints and plan safe staging and burns.
 
-Under the hood, the server also scrapes and indexes the kRPC docs to provide a fast, local search backend.  Those pipelines are described in a later section; the focus here is on the mission‑control capabilities.
+*Successful flights cannot be guaranteed
 
 ## Core capabilities
 
 ### 🛰️ Live script execution
 
-Call the `execute_script` tool to run Python code against your running game.  The MCP server automatically injects useful globals:
+The `execute_script` tool allows your LLM to run Python code against your running game. with its pre-setup there is no need to worry your LLM will successfully connect to your game. The MCP server automatically injects useful globals:
 
 - `conn`: your live kRPC connection
 - `vessel`: the active vessel (or `None` if you’re not in flight)
 - `time`, `math`, `sleep`, `deadline` and `check_time()` helpers
 - a preconfigured `logging` module and a `log(msg)` convenience function
-
-Scripts should not import `krpc` or open their own connections; they should print or log output and include a `SUMMARY:` at the end.  The tool returns a structured JSON result with `summary`, `transcript`, timing and error fields.  See the [example gravity‑turn script](#example-script-gravity-turn) below.
+ - A status summary of flight variables after successful execution or catastrophic failure
 
 ### 🛠️ Vessel blueprints & diagrams
 
-Need to inspect your craft?  The blueprint tools expose:
+Need your LLM to inspect your craft? The blueprint tools expose:
 
 - `get_vessel_blueprint`: returns a JSON blueprint with metadata, stages, engines and parts.
 - `get_part_tree`: returns a hierarchical list of all parts with parent/child relationships, modules and resources.
-- `get_blueprint_ascii`: produces a human‑readable per‑stage summary of the vessel.
-- `export_blueprint_diagram`: generates a diagram (SVG or PNG) of your vessel’s staging and structure.  The output is cached for retrieval via `resource://` URIs.
+- `get_blueprint_ascii`: produces a LLM-readable per‑stage summary of the vessel.
+- `export_blueprint_diagram`: generates a diagram (SVG or PNG) of your vessel’s staging and structure.  
 
-These tools let agents understand the craft’s structure, plan staging and fuel usage, and generate diagrams for mission briefings.
+These tools let your LLM understand the craft’s structure, plan staging and fuel usage to generate vessel specific flight plans and mission profiles
 
 ### 📚 KSP Wiki & doc search
 
