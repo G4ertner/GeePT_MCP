@@ -22,13 +22,15 @@ The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Prog
 
 ### 🛰️ Live script execution
 
-The `execute_script` tool allows your LLM to run Python code against your running game. with its pre-setup there is no need to worry your LLM will successfully connect to your game. The MCP server automatically injects useful globals:
+The `execute_script` tool allows your LLM to run kRPC Python code against your running game. with its pre-setup there is no need to worry your LLM will successfully connect to your game. The MCP server automatically injects useful globals:
 
 - `conn`: your live kRPC connection
 - `vessel`: the active vessel (or `None` if you’re not in flight)
 - `time`, `math`, `sleep`, `deadline` and `check_time()` helpers
 - a preconfigured `logging` module and a `log(msg)` convenience function
- - A status summary of flight variables after successful execution or catastrophic failure
+- A status summary of flight variables after successful execution or catastrophic failure
+
+Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step.
 
 ### 🛠️ Vessel blueprints & diagrams
 
