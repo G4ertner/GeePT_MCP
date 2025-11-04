@@ -62,18 +62,41 @@ def execute_script(
       JSON: {
         ok: bool,
         summary: str|null,
-        transcript: str,          // combined stdout + stderr so the agent sees crashes
+        transcript: str,          // combined stdout + stderr so crashes are visible
         stdout: str,              // raw stdout only
         stderr: str,              // raw stderr only (tracebacks, etc.)
         error: {type,message,line?,traceback?}|null,
         paused: bool|null,
+        unpaused: bool|null,
         timing: {exec_time_s},
+        pre_pause_flight: {...}|null,  // snapshot just before pausing (has non-zero speeds)
+        follow_up?: {                 // when ok=false, guidance for next step
+          suggest_get_diagnostics: true,
+          message: string,            // human-readable hint
+          tool: "get_diagnostics",
+          params: { address, rpc_port, stream_port, name }
+        },
         code_stats: {line_count, has_imports}
       }
+
+    Operational behavior:
+      - On start: best-effort unpause (unpause_on_start=true by default) so physics runs.
+      - On end (success, failure, or exception): best-effort pause; includes `pre_pause_flight`
+        with velocities sampled immediately before pausing so speeds are informative.
+      - Soft timeout: your script should call `check_time()` inside loops; on TimeoutError
+        the runner pauses and returns `ok=false` with `pre_pause_flight`.
+      - Hard timeout: if `hard_timeout_sec` elapses, the parent kills the runner, pauses the
+        game, and returns a minimal `diagnostics` block plus a `follow_up` hint to call
+        `get_diagnostics` for a rich snapshot while the game is paused.
+
+    Recommended pattern after any failure/timeout:
+      - If `ok=false` OR you need deeper insight, immediately call `get_diagnostics` with the
+        provided params in `follow_up` to retrieve a comprehensive paused-state snapshot.
+
     Notes:
-      - `vessel` can be None depending on the scene (e.g., KSC/Tracking Station). Guard in scripts.
-      - `pause_on_end` is best-effort and may return None when unsupported by your kRPC version.
-      - The `transcript` includes stderr so exceptions are visible to the agent alongside prints/logs.
+      - `vessel` may be None depending on the scene (e.g., KSC/Tracking Station). Guard accordingly.
+      - `pause_on_end` is best-effort and may be None on some kRPC versions.
+      - The `transcript` includes stderr so exceptions are visible alongside prints/logs.
     """
     # Prepare temporary workspace
     with tempfile.TemporaryDirectory(prefix="krpc_exec_") as tmp:
@@ -135,6 +158,7 @@ def execute_script(
             except Exception:
                 pass
             # Attempt to collect best-effort diagnostics from the live game to help the LLM debug timeouts.
+            # Keep this lightweight to return well under upstream 60s tool-call caps.
             diagnostics: Dict[str, Any] | None = None
             try:
                 conn = connect_to_game(
@@ -142,37 +166,32 @@ def execute_script(
                     rpc_port=int(rpc_port),
                     stream_port=int(stream_port),
                     name=name,
-                    timeout=5.0,
+                    timeout=3.0,
                 )
-                diagnostics = {
-                    "vessel": readers.vessel_info(conn),
-                    "environment": readers.environment_info(conn),
-                    "flight": readers.flight_snapshot(conn),
-                    "orbit": readers.orbit_info(conn),
-                    "time": readers.time_status(conn),
-                    "attitude": readers.attitude_status(conn),
-                    "aero": readers.aero_status(conn),
-                }
+                pre_flight = None
                 try:
-                    diagnostics["engines"] = readers.engine_status(conn)
+                    pre_flight = readers.flight_snapshot(conn)
                 except Exception:
-                    pass
-                try:
-                    diagnostics["resources"] = readers.resource_breakdown(conn)
-                except Exception:
-                    pass
-                try:
-                    diagnostics["maneuver_nodes"] = readers.maneuver_nodes_basic(conn)
-                except Exception:
-                    pass
-                # After collecting diagnostics, best-effort pause so the game stops progressing.
+                    pre_flight = None
+                # Pause first to freeze the scene; we already captured pre-pause speeds above.
                 try:
                     _best_effort_pause(conn)
                 except Exception:
                     pass
+                # Minimal snapshot that is fast but informative
+                diagnostics = {
+                    "vessel": readers.vessel_info(conn),
+                    "time": readers.time_status(conn),
+                    "pre_pause_flight": pre_flight,
+                }
             except Exception as e:
                 diagnostics = {"note": f"diagnostics unavailable: {type(e).__name__}"}
-
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            
             return json.dumps({
                 "ok": False,
                 "summary": None,
@@ -183,6 +202,17 @@ def execute_script(
                 "paused": None,
                 "timing": {"exec_time_s": (float(hard_timeout_sec) if hard_timeout_sec else None)},
                 "diagnostics": diagnostics,
+                "follow_up": {
+                    "suggest_get_diagnostics": True,
+                    "message": "Hint: call get_diagnostics to capture a rich paused-state snapshot and investigate why the script failed or timed out.",
+                    "tool": "get_diagnostics",
+                    "params": {
+                        "address": address,
+                        "rpc_port": int(rpc_port),
+                        "stream_port": int(stream_port),
+                        "name": name,
+                    }
+                },
                 "code_stats": {
                     "line_count": code.count("\n") + 1,
                     "has_imports": bool(re.search(r"^\s*(from|import)\b", code, re.M)),
@@ -217,7 +247,22 @@ def execute_script(
                 "has_imports": bool(re.search(r"^\s*(from|import)\b", code, re.M)),
             },
         }
-
+        # Hint: when a script fails or times out, suggest calling get_diagnostics to inspect game state
+        try:
+            if not result["ok"]:
+                result["follow_up"] = {
+                    "suggest_get_diagnostics": True,
+                    "message": "Hint: call get_diagnostics to capture a rich paused-state snapshot and investigate why the script failed or timed out.",
+                    "tool": "get_diagnostics",
+                    "params": {
+                        "address": address,
+                        "rpc_port": int(rpc_port),
+                        "stream_port": int(stream_port),
+                        "name": name,
+                    }
+                }
+        except Exception:
+            pass
         return json.dumps(result)
 
 

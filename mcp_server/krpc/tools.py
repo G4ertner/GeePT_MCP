@@ -502,6 +502,50 @@ def launch_vessel(address: str, craft_directory: str, name: str, launch_site: st
             pass
 
 
+# Diagnostics snapshot (rich, paused-friendly)
+
+@mcp.tool()
+def get_diagnostics(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """
+    Collect a richer diagnostics snapshot to aid post-mortems.
+
+    Returns JSON with: vessel, time, environment, flight, orbit, attitude,
+    aero, engines, resources, maneuver_nodes, and surface.
+    """
+    conn = _connect(address, rpc_port, stream_port, name, timeout)
+    try:
+        data = {
+            "vessel": readers.vessel_info(conn),
+            "time": readers.time_status(conn),
+            "environment": readers.environment_info(conn),
+            "flight": readers.flight_snapshot(conn),
+            "orbit": readers.orbit_info(conn),
+            "attitude": readers.attitude_status(conn),
+            "aero": readers.aero_status(conn),
+        }
+        try:
+            data["engines"] = readers.engine_status(conn)
+        except Exception:
+            pass
+        try:
+            data["resources"] = readers.resource_breakdown(conn)
+        except Exception:
+            pass
+        try:
+            data["maneuver_nodes"] = readers.maneuver_nodes_basic(conn)
+        except Exception:
+            pass
+        try:
+            data["surface"] = readers.surface_info(conn)
+        except Exception:
+            pass
+        return json.dumps(data)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 # Internal: pause helper mirrored from executors.runner
 def _best_effort_pause(conn):
     # Preferred API: KRPC.paused (read/write)
