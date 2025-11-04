@@ -217,120 +217,158 @@ Commander, acknowledged. Target: 150 km circular orbit around Kerbin.
 **GeePT Script:**
 
 ```python
-log("BEGIN: 150 km orbit insertion")
+log("BEGIN: streamlined 150 km ascent demo")
 
 if vessel is None:
     print("SUMMARY: aborted — no active vessel in scene")
 else:
-    # Helpers
-    def try_stage(reason: str):
-        log(f"STAGE: attempting — {reason}")
-        vessel.control.activate_next_stage()
-        sleep(0.5)
-
-    def maybe_stage():
-        # Stage if engines are out of thrust while throttling (typical SRB/buffer burnout)
-        try:
-            if vessel.control.throttle > 0.05 and vessel.available_thrust < 5.0:
-                try_stage("available thrust near zero while throttling")
-        except Exception as e:
-            log(f"WARN: thrust check failed: {e}")
-
-    flight = vessel.flight()
+    sc = conn.space_center
     orbit = vessel.orbit
+    flight_surface = vessel.flight(vessel.surface_reference_frame)
 
-    # Setup attitude control (simple autopilot guidance eastward)
+    TARGET_ALT = 150_000.0
+    TURN_START = 7_000.0
+    TURN_END = 60_000.0
+    TERMINAL_STAGE = 0
+    KP_PE = 0.00018  # throttle gain for circularization
+    STAGE_FUELS = ("LiquidFuel", "Oxidizer", "SolidFuel")
+
+    def stage_dry():
+        if vessel.control.current_stage <= TERMINAL_STAGE:
+            return False
+        try:
+            resources = vessel.resources_in_decouple_stage(
+                vessel.control.current_stage - 1,
+                cumulative=False,
+            )
+        except Exception:
+            return False
+        saw_fuel = False
+        for name in STAGE_FUELS:
+            try:
+                if resources.max(name) > 0.1:
+                    saw_fuel = True
+                    if resources.amount(name) > 0.5:
+                        return False
+            except Exception:
+                continue
+        return saw_fuel
+
+    def maybe_stage(label: str):
+        if stage_dry() or vessel.available_thrust < 0.5:
+            log(f"STAGE: {label}")
+            vessel.control.activate_next_stage()
+            sleep(0.5)
+
+    def turn_pitch(alt: float) -> float:
+        if alt <= TURN_START:
+            return 90.0
+        if alt >= TURN_END:
+            return 5.0
+        fraction = (alt - TURN_START) / (TURN_END - TURN_START)
+        return 90.0 - fraction * 85.0
+
     ap = vessel.auto_pilot
     ap.reference_frame = vessel.surface_reference_frame
     ap.engage()
-    ap.target_pitch_and_heading(90, 90)  # straight up, heading east
+    ap.stopping_time = (1, 1, 1)
+    ap.target_pitch_and_heading(90, 90)
 
+    vessel.control.sas = False
+    vessel.control.rcs = False
     vessel.control.throttle = 1.0
-    log("Throttle set to 100%")
+    log("ASCENT: throttle up, gravity turn armed")
 
-    target_ap = 150_000.0  # meters
-    t0 = conn.space_center.ut
-
-    # ASCENT + GRAVITY TURN
-    while orbit.apoapsis_altitude < target_ap and conn.space_center.ut - t0 < 240:
+    ascent_t0 = sc.ut
+    while orbit.apoapsis_altitude < TARGET_ALT and sc.ut - ascent_t0 < 220:
         check_time()
-        alt = flight.mean_altitude
-        vs = flight.vertical_speed
-        aa = orbit.apoapsis_altitude
-        log(f"STATE: alt={alt:.0f}m vs={vs:.1f}m/s Ap={aa:.0f}m stage={vessel.control.current_stage}")
-
-        # Gravity turn milestones (coarse but stable)
-        if alt > 2_500:
-            ap.target_pitch_and_heading(85, 90)
-        if alt > 6_000:
-            ap.target_pitch_and_heading(75, 90)
-        if alt > 12_000:
-            ap.target_pitch_and_heading(60, 90)
-        if alt > 25_000:
-            ap.target_pitch_and_heading(45, 90)
-        if alt > 40_000:
-            ap.target_pitch_and_heading(25, 90)
-
-        maybe_stage()
-        sleep(0.25)
-
-    if orbit.apoapsis_altitude >= target_ap:
-        vessel.control.throttle = 0.0
-        log("Ap target reached — throttle cut")
-    else:
-        print("SUMMARY: failed_to_reach_target_ap — consider higher TWR or more Δv")
-        raise SystemExit
-
-    # COAST TO APOAPSIS (light warp)
-    try:
-        ut = conn.space_center.ut
-        tta = orbit.time_to_apoapsis
-        if tta is not None and tta > 12:
-            conn.space_center.warp_to(ut + max(tta - 10, 0))
-    except Exception as e:
-        log(f"WARN: warp_to skipped: {e}")
-
-    # CIRCULARIZE AT Ap: burn prograde until Pe ~ 150 km
-    ap.reference_frame = vessel.orbital_reference_frame
-    ap.target_direction = (0, 1, 0)  # prograde in orbital frame
-
-    vessel.control.throttle = 0.6
-
-    circ_t0 = conn.space_center.ut
-    while conn.space_center.ut - circ_t0 < 180:
-        check_time()
-        pe = orbit.periapsis_altitude
-        aa = orbit.apoapsis_altitude
-        log(f"CIRC: Ap={aa:.0f}m Pe={pe:.0f}m")
-
-        if pe >= 148_000:
-            break
-
-        # If thrust vanished mid-burn, attempt staging
-        maybe_stage()
+        alt = flight_surface.mean_altitude
+        ap.target_pitch_and_heading(turn_pitch(alt), 90)
+        maybe_stage("ascent burnout")
+        if sc.ut % 2 < 0.2:
+            log(
+                f"ASCENT: alt={alt:.0f}m Ap={orbit.apoapsis_altitude:.0f}m "
+                f"stage={vessel.control.current_stage} throttle={vessel.control.throttle:.2f}"
+            )
         sleep(0.2)
 
     vessel.control.throttle = 0.0
+    if orbit.apoapsis_altitude < TARGET_ALT - 2_000:
+        print(
+            f\"\"\"SUMMARY:
+phase: streamlined 150km orbit
+achieved: false
+apoapsis_m: {orbit.apoapsis_altitude:.1f}
+periapsis_m: {orbit.periapsis_altitude:.1f}
+note: Apoapsis short—Commander, add thrust or flatten the turn sooner.
+next_step: Adjust ascent profile and retry.
+\"\"\"
+        )
+        raise SystemExit
 
-    # Fine trim if needed
-    if orbit.periapsis_altitude < 148_000 and orbit.apoapsis_altitude > 152_000:
-        vessel.control.throttle = 0.2
-        trim_t0 = conn.space_center.ut
-        while orbit.periapsis_altitude < 148_000 and conn.space_center.ut - trim_t0 < 40:
-            check_time()
-            maybe_stage()
-            sleep(0.2)
-        vessel.control.throttle = 0.0
+    log("COAST: apoapsis reached, throttling down")
+    try:
+        lead = max((orbit.time_to_apoapsis or 0) - 4.0, 0.0)
+        if lead > 0.5:
+            sc.warp_to(sc.ut + lead)
+    except Exception as exc:
+        log(f"WARN: warp skipped ({exc})")
 
-    achieved = (abs(orbit.apoapsis_altitude - 150_000) < 5_000) and (abs(orbit.periapsis_altitude - 150_000) < 10_000)
+    ap.reference_frame = vessel.orbital_reference_frame
+    ap.target_direction = (0, 1, 0)
+    try:
+        ap.wait()
+    except Exception:
+        pass
 
-    print(f"""SUMMARY:
-phase: 150km orbit insertion
+    log("CIRC: prograde burn with reactive throttle")
+    burn_t0 = sc.ut
+    while sc.ut - burn_t0 < 180:
+        check_time()
+        pe_error = TARGET_ALT - orbit.periapsis_altitude
+        if pe_error <= 0:
+            break
+        tta = orbit.time_to_apoapsis or 0.0
+        throttle_cmd = max(0.2, min(0.95, KP_PE * pe_error))
+        if tta > 6.0:
+            throttle_cmd = min(throttle_cmd, 0.4)
+        elif tta < 2.0:
+            throttle_cmd = min(throttle_cmd, 0.25)
+        vessel.control.throttle = throttle_cmd
+        log(
+            f"CIRC: Pe={orbit.periapsis_altitude:.0f}m Ap={orbit.apoapsis_altitude:.0f}m "
+            f"tta={tta:.1f}s thrtl={throttle_cmd:.2f}"
+        )
+        maybe_stage("circularization burnout")
+        sleep(0.2)
+
+    vessel.control.throttle = 0.0
+    vessel.control.sas = True
+    try:
+        ap.disengage()
+    except Exception:
+        pass
+
+    achieved = (
+        abs(orbit.apoapsis_altitude - TARGET_ALT) < 4_000
+        and abs(orbit.periapsis_altitude - TARGET_ALT) < 4_000
+    )
+    tta = orbit.time_to_apoapsis or float("nan")
+    next_step = (
+        "Commander, set transfer node or payload actions."
+        if achieved
+        else "Commander, re-run ascent with tweaks or add Δv margin."
+    )
+    print(
+        f\"\"\"SUMMARY:
+phase: streamlined 150km orbit
 achieved: {str(achieved).lower()}
 apoapsis_m: {orbit.apoapsis_altitude:.1f}
 periapsis_m: {orbit.periapsis_altitude:.1f}
-next_step: {{"if achieved": "Commander, set target body or plan transfer window.", "else": "Refine gravity turn, increase TWR, or add Δv stage."}}
-""")
+time_to_ap_s: {tta:.1f}
+next_step: {next_step}
+\"\"\"
+    )
 ```
 
 ---
@@ -338,4 +376,3 @@ next_step: {{"if achieved": "Commander, set target body or plan transfer window.
 *GeePT out — awaiting next mission parameter.*
 
 ---
-
