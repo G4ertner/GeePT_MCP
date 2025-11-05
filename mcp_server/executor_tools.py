@@ -44,9 +44,6 @@ def execute_script(
       - Always include a `SUMMARY:` block at the end (a single line or a block starting with `SUMMARY:`) so the agent can quickly understand outcomes.
       - Use bounded loops and call `check_time()` periodically; the runner enforces a hard wall-time timeout.
 
-  !!! CAREFULL: !!!!
-      If you are running on Codex CLI, your MCP tool call setting might automatically hard time out after 60 seconds. Be aware that your scripts can only for 60 seconds max. Break them up to be shorter than 60 seconds if needed (soft time out)
-
     Args:
       code: Python source string to execute
       address/rpc_port/stream_port/name: kRPC connection settings
