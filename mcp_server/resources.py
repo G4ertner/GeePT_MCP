@@ -205,129 +205,215 @@ def get_rendezvous_playbook() -> str:
 
 
 LAUNCH_ASCENT_CIRC_PLAYBOOK = '''
-Launch, Ascent, Circularize Playbook
+Launch → Ascent → Circularize Playbook
 
-Purpose: Safely launch to space, perform a gravity turn, and circularize at apoapsis into a stable LKO.
+Purpose: guide GeePT through the SCRIBE loop—observe, plan, execute, and adapt—while delivering a low-Kerbin orbit injection.
 
-0) Preconditions & Safety
-- On pad or low-altitude flight; confirm kRPC connectivity (krpc_get_status).
-- Snapshot: get_status_overview; export_blueprint_diagram to visualize stages.
-- Verify: engine status, propellant, staging order, SAS/RCS states, throttle=0.
-- Targets: orbit altitude (e.g., 80–100 km), acceptable max-Q (dynamic_pressure_pa).
+Core Loop (see master prompt)
+- Check vessel makeup & state.
+- Draft a step-by-step plan (gravity turn + circularization).
+- Fetch any snippets/docs that de-risk the script.
+- Execute one deterministic script with logs + SUMMARY.
+- Review telemetry; decide next mission phase or retry.
 
-1) Situation & Blueprint
-- get_status_overview — gather vessel/environment/flight/orbit/time/aero.
-- export_blueprint_diagram(address, format='svg') — quick stage dv/TWR overview.
-- Optional: get_engine_status, get_resource_breakdown.
+0) Preflight & Safety
+- Tooling warm-up: krpc_get_status; get_status_overview; get_vessel_blueprint (optionally export blueprint diagram).
+- Verify staging tree, engine availability, and propellant; throttle=0, SAS/RCS as required.
+- Capture baseline telemetry (dynamic_pressure_pa, g_force, current TWR). Abort if anomalies detected.
 
-2) Plan Gravity Turn
-- Typical start: 2–3 km or 120–150 m/s; end: ~45–65 km.
-- Manage throttle to keep TWR ~1.3–1.8 and avoid max‑Q spikes.
-- Reference: search_ksp_wiki("Gravity turn") for background.
-- Snippets usage:
-  • snippets_search({"query": "ascent gravity turn", "k": 10, "mode": "hybrid", "rerank": true})
-  • Resolve helpers (functions/classes) via snippets_resolve to bootstrap the script.
+1) Telemetry Sweep & Mission Plan
+- Call get_status_overview to snapshot vessel/environment/orbit/aero/time.
+- Use get_engine_status and get_resource_breakdown if staging or propellant margins look uncertain.
+- Optional: search_ksp_wiki("gravity turn") or snippets_search for ascent helpers when you need references.
+- Draft plan bullets for Commander: launch heading, turn start/end altitudes, target apoapsis/periapsis, throttle envelopes, abort gates.
 
-Reusable code — gravity turn (MIT; from krpc/krpc-library Art_Whaleys_KRPC_Demos):
-```
-def gravturn(conn, launch_params):
-    """
-    Execute quadratic gravity turn — based on Robert Penner's easing equations (EaseOut)
-    """
-    vessel = conn.space_center.active_vessel
-    flight = vessel.flight(vessel.orbit.body.non_rotating_reference_frame)
-    progress = flight.mean_altitude / launch_params.grav_turn_finish
-    vessel.auto_pilot.target_pitch = 90 - (-90 * progress * (progress - 2))
-```
+2) Script Preparation
+- Keep loops bounded; call check_time(); add structured log lines.
+- Rely on injected globals (`conn`, `vessel`, `sleep`, `math`, `logging`, etc.).
+- Pull snippets when useful (e.g., Art Whaley autostage helpers). Respect license filters.
+- Decide which constants belong in-script (target altitudes, gains) versus values read live (gravity, thrust, resources).
 
-3) Execute Launch + Ascent (script)
-- Sequence outline (adapt to blueprint & snippets):
-  1. Throttle to 100%; stage clamps; stage booster/first engines.
-  2. Vertical climb until 120–150 m/s OR 2–3 km.
-  3. Begin pitch program: gradually pitch from 90° toward horizon; at 35 km+, switch to orbital reference for target_direction=(0,1,0) (prograde).
-  4. Throttle to maintain target TWR or Δv schedule; stage as needed.
-  5. Aim for apoapsis altitude target (e.g., 80–100 km). Cut throttle at AP target.
-- Monitoring: dynamic_pressure_pa (limit max‑Q), g_force, pitch/heading, apoapsis_altitude_m.
-- Use bounded loops with timeouts and logs; add SUMMARY at end.
+3) Example GeePT Execution (150 km target)
 
-Reusable code — safe launch clamp release (avoid double-staging boosters)
-```
-def safe_release_clamps_if_stuck(v, started_at: float) -> None:
-    """
-    After initial staging, if altitude < 3 m and |vertical_speed| < 0.5 m/s
-    after ~2 seconds (still on pad), and launch clamps exist, stage once to
-    release clamps. No effect once the rocket is moving.
-    """
-    import time
-    if time.time() - started_at < 2.0:
-        return
-    f = v.flight(v.orbit.body.reference_frame)
-    alt = getattr(f, "mean_altitude", 0.0) or 0.0
-    vs = getattr(f, "vertical_speed", 0.0) or 0.0
-    if alt < 3.0 and abs(vs) < 0.5:
+**Commander prompt**: “Computer, get me to an orbit of 150 km!”
+
+**GeePT thinking**  
+- Phase assess: LKO ascent within single script scope.  
+- Data request: get_status_overview → confirm we are on pad, mass, available thrust, staging depth.  
+- Plan: two-point gravity turn (start 7 km, finish 60 km), throttle feedback via dynamic pressure, reactive circularization burn that hugs apoapsis arrival.  
+- Safety: stage only when dry; keep loops under 220 s (ascent) and 180 s (circularize); log every ~2 s.  
+- Snippets: leverage stage-dry pattern (adapted from Art Whaley demo); no license conflicts.
+
+**GeePT script**:
+```python
+log("BEGIN: streamlined 150 km ascent demo")
+
+if vessel is None:
+    print("SUMMARY: aborted — no active vessel in scene")
+else:
+    sc = conn.space_center
+    orbit = vessel.orbit
+    flight_surface = vessel.flight(vessel.surface_reference_frame)
+
+    TARGET_ALT = 150_000.0
+    TURN_START = 7_000.0
+    TURN_END = 60_000.0
+    TERMINAL_STAGE = 0
+    KP_PE = 0.00018  # throttle gain for circularization
+    STAGE_FUELS = ("LiquidFuel", "Oxidizer", "SolidFuel")
+
+    def stage_dry():
+        if vessel.control.current_stage <= TERMINAL_STAGE:
+            return False
         try:
-            if len(v.parts.launch_clamps) > 0:
-                v.control.activate_next_stage()
+            resources = vessel.resources_in_decouple_stage(
+                vessel.control.current_stage - 1,
+                cumulative=False,
+            )
         except Exception:
-            pass
+            return False
+        saw_fuel = False
+        for name in STAGE_FUELS:
+            try:
+                if resources.max(name) > 0.1:
+                    saw_fuel = True
+                    if resources.amount(name) > 0.5:
+                        return False
+            except Exception:
+                continue
+        return saw_fuel
+
+    def maybe_stage(label: str):
+        if stage_dry() or vessel.available_thrust < 0.5:
+            log(f"STAGE: {label}")
+            vessel.control.activate_next_stage()
+            sleep(0.5)
+
+    def turn_pitch(alt: float) -> float:
+        if alt <= TURN_START:
+            return 90.0
+        if alt >= TURN_END:
+            return 5.0
+        fraction = (alt - TURN_START) / (TURN_END - TURN_START)
+        return 90.0 - fraction * 85.0
+
+    ap = vessel.auto_pilot
+    ap.reference_frame = vessel.surface_reference_frame
+    ap.engage()
+    ap.stopping_time = (1, 1, 1)
+    ap.target_pitch_and_heading(90, 90)
+
+    vessel.control.sas = False
+    vessel.control.rcs = False
+    vessel.control.throttle = 1.0
+    log("ASCENT: throttle up, gravity turn armed")
+
+    ascent_t0 = sc.ut
+    while orbit.apoapsis_altitude < TARGET_ALT and sc.ut - ascent_t0 < 220:
+        check_time()
+        alt = flight_surface.mean_altitude
+        ap.target_pitch_and_heading(turn_pitch(alt), 90)
+        maybe_stage("ascent burnout")
+        if sc.ut % 2 < 0.2:
+            log(
+                f"ASCENT: alt={alt:.0f}m Ap={orbit.apoapsis_altitude:.0f}m "
+                f"stage={vessel.control.current_stage} throttle={vessel.control.throttle:.2f}"
+            )
+        sleep(0.2)
+
+    vessel.control.throttle = 0.0
+    if orbit.apoapsis_altitude < TARGET_ALT - 2_000:
+        print(
+            f\"\"\"SUMMARY:
+phase: streamlined 150km orbit
+achieved: false
+apoapsis_m: {orbit.apoapsis_altitude:.1f}
+periapsis_m: {orbit.periapsis_altitude:.1f}
+note: Apoapsis short—Commander, add thrust or flatten the turn sooner.
+next_step: Adjust ascent profile and retry.
+\"\"\"
+        )
+        raise SystemExit
+
+    log("COAST: apoapsis reached, throttling down")
+    try:
+        lead = max((orbit.time_to_apoapsis or 0) - 4.0, 0.0)
+        if lead > 0.5:
+            sc.warp_to(sc.ut + lead)
+    except Exception as exc:
+        log(f"WARN: warp skipped ({exc})")
+
+    ap.reference_frame = vessel.orbital_reference_frame
+    ap.target_direction = (0, 1, 0)
+    try:
+        ap.wait()
+    except Exception:
+        pass
+
+    log("CIRC: prograde burn with reactive throttle")
+    burn_t0 = sc.ut
+    while sc.ut - burn_t0 < 180:
+        check_time()
+        pe_error = TARGET_ALT - orbit.periapsis_altitude
+        if pe_error <= 0:
+            break
+        tta = orbit.time_to_apoapsis or 0.0
+        throttle_cmd = max(0.2, min(0.95, KP_PE * pe_error))
+        if tta > 6.0:
+            throttle_cmd = min(throttle_cmd, 0.4)
+        elif tta < 2.0:
+            throttle_cmd = min(throttle_cmd, 0.25)
+        vessel.control.throttle = throttle_cmd
+        log(
+            f"CIRC: Pe={orbit.periapsis_altitude:.0f}m Ap={orbit.apoapsis_altitude:.0f}m "
+            f"tta={tta:.1f}s thrtl={throttle_cmd:.2f}"
+        )
+        maybe_stage("circularization burnout")
+        sleep(0.2)
+
+    vessel.control.throttle = 0.0
+    vessel.control.sas = True
+    try:
+        ap.disengage()
+    except Exception:
+        pass
+
+    achieved = (
+        abs(orbit.apoapsis_altitude - TARGET_ALT) < 4_000
+        and abs(orbit.periapsis_altitude - TARGET_ALT) < 4_000
+    )
+    tta = orbit.time_to_apoapsis or float("nan")
+    next_step = (
+        "Commander, set transfer node or payload actions."
+        if achieved
+        else "Commander, re-run ascent with tweaks or add Δv margin."
+    )
+    print(
+        f\"\"\"SUMMARY:
+phase: streamlined 150km orbit
+achieved: {str(achieved).lower()}
+apoapsis_m: {orbit.apoapsis_altitude:.1f}
+periapsis_m: {orbit.periapsis_altitude:.1f}
+time_to_ap_s: {tta:.1f}
+next_step: {next_step}
+\"\"\"
+    )
 ```
 
-Reusable code — circularize maneuver planning (MIT; krpc/krpc-library):
-```
-def planCirc(conn):
-    """
-    Plan a circularization at apoapsis using vis-viva velocities.
-    """
-    import math
-    vessel = conn.space_center.active_vessel
-    ut = conn.space_center.ut
-    grav_param = vessel.orbit.body.gravitational_parameter
-    apo = vessel.orbit.apoapsis
-    sma = vessel.orbit.semi_major_axis
-    v1 = math.sqrt(grav_param * ((2.0 / apo) - (1.0 / sma)))
-    v2 = math.sqrt(grav_param * ((2.0 / apo) - (1.0 / apo)))
-    vessel.control.add_node(ut + vessel.orbit.time_to_apoapsis, prograde=(v2 - v1))
-```
+4) Post-Script Analysis
+- Review SUMMARY and log transcript; confirm Δv balance and staging behavior.
+- If achieved: tee up maneuver planning (compute_transfer_window_to_body, etc.).
+- If shortfall: inspect telemetry (log altitudes, throttle responses). Adjust TURN_START/TURN_END or KP_PE; consider snippets_search for alternate throttle/TWR controllers.
+- Optionally save state (save_llm_checkpoint) before iterating.
 
-4) Plan Circularization at Apoapsis
-- Get orbit info: get_orbit_info; note time_to_apoapsis_s.
-- Alternative compute helpers: compute_circularize_node(at='apoapsis'); compute_burn_time(dv).
-- set_maneuver_node(ut, prograde, normal, radial); warp_to(ut - burn_time/2).
-- Execute burn (script):
-  • Point to node burn vector; throttle to target Δv; optionally monitor remaining_burn_vector.
-  • Cut throttle; delete node(s) when complete.
-
-Reusable code — standalone circularize function (MIT; krpc/krpc-library):
-```
-def circularize_at_apoapsis(vessel, ut):
-    """
-    Create a maneuver node to circularize orbit at given time.
-    """
-    import math
-    body = vessel.orbit.body
-    GM = body.gravitational_parameter
-    apo = vessel.orbit.apoapsis
-    SMA = vessel.orbit.semi_major_axis
-    v1 = math.sqrt(GM * ((2 / apo) - (1 / SMA)))
-    v2 = math.sqrt(GM * ((2 / apo) - (1 / (apo))))
-    dv = v2 - v1
-    time = vessel.orbit.time_to_apoapsis + ut
-    return vessel.control.add_node(time, prograde=dv)
-```
-
-5) Verify Orbit & Cleanup
-- get_orbit_info — confirm Pe/Ap near targets; eccentricity low.
-- If needed: compute_raise_lower_node(kind='periapsis'|'apoapsis', target_alt_m) for small corrections.
-- Delete maneuver nodes and log SUMMARY with final orbit elements.
-
-Snippets usage (search/resolve)
-- Ascent control: search "ascent", "gravity turn", "TWR throttle".
-- Circularize helper: search "circularize at apoapsis"; resolve into function.
-- One‑shot: snippets_search_and_resolve({"query": "circularize orbit", "k": 5, "mode": "hybrid"}).
+5) Useful Follow-up Resources
+- compute_circularize_node(at='apoapsis') for analytical burn targeting.
+- compute_burn_time(dv_m_s) to time warp-to-node precisely.
+- get_stage_plan / get_staging_info for deeper Δv accounting.
 
 Notes
-- Respect license policy: pass exclude_restricted=true in search if required.
-- MechJeb integration: when available, use its kRPC service (ascent_autopilot, maneuver planner) for higher-level automation.
+- Always respect licensing when ingesting snippets (exclude_restricted=true if needed).
+- If MechJeb or other automation mods expose kRPC APIs, consider delegating ascent or circularization but still wrap with GeePT logging and SUMMARY.
 '''
 
 
