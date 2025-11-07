@@ -734,6 +734,11 @@ def get_stage_plan(address: str, rpc_port: int = 50000, stream_port: int = 50001
     Approximate stock‑like staging plan by grouping decouple‑only stages under the
     preceding engine stage.
 
+    Note:
+      For big rockets this direct call can exceed the 60 s CLI limit. Prefer
+      start_stage_plan_job -> get_job_status(job_id) -> read_resource(result_resource)
+      to fetch the JSON artifact safely, and reserve this helper for quick snapshots.
+
     When to use:
       - Match KSP’s staging view for Δv/TWR per engine stage.
 
@@ -1175,6 +1180,11 @@ def clear_target(address: str, rpc_port: int = 50000, stream_port: int = 50001, 
 def get_part_tree(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """
     Hierarchical part tree with staging and module/resource summaries.
+
+    Note:
+      This synchronous call can exceed the CLI's 60 s limit on large vessels.
+      Prefer start_part_tree_job -> get_job_status(job_id) -> read_resource(result_resource)
+      when you need a full tree safely; fall back to this direct call only for quick checks.
 
     Returns:
       JSON: { parts: [ { id, title, name, tag?, stage, decouple_stage?, parent_id?, children_ids[],

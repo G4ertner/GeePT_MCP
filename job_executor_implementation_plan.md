@@ -26,10 +26,9 @@ Codex CLI terminates tool calls that run longer than ~60 seconds. To keep `get_p
    - Amended `SCRIBE_Master_Prompt_KSP_MCP.md` with a subsection outlining the workflow and tool names.
    - Manual test: reviewed the updated prompt/docstrings in the repo to confirm clarity and placement.
 
-5. **Revise Codex playbooks / user docs**
-   - Update the blueprint retrieval playbook (in `artifacts/` or `knowledge_tools.md`) to show the exact command sequence for fetching staging plans via jobs, including failure-handling guidance.
-   - Automated test: run the documentation link checker or markdown linter to ensure references resolve and formatting passes CI.
-   - Manual test: follow the playbook instructions locally to confirm the flow works for a large vessel.
+5. **Revise Codex playbooks / user docs** (done)
+   - Updated the vessel blueprint playbook (`resource://playbooks/vessel-blueprint-usage`) and README tooling section with the explicit `start_*_job -> get_job_status -> read_resource` workflow plus failure-handling notes.
+   - Manual test: reviewed the rendered playbook resource/README to confirm the steps are visible for agents and operators.
 
 6. **Integration smoke test**
    - Run the MCP server, kick off both jobs, poll them to completion, and fetch the exported JSON via `read_file` to verify the timeout no longer interrupts the flow.
