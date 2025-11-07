@@ -74,9 +74,10 @@ def get_job_status(job_id: str) -> str:
     Poll the status of a background job started by tools such as start_part_tree_job.
 
     Usage pattern:
-        1. Call the job-starting tool (e.g., start_part_tree_job) which returns a job_id.
-        2. Poll get_job_status(job_id) until "status" == "SUCCEEDED".
-        3. If "status" == "FAILED", inspect the logs and error message to diagnose.
+        1. Call a job-starting tool (e.g., start_part_tree_job/start_stage_plan_job) to get a job_id.
+        2. Poll get_job_status(job_id) until "status" == "SUCCEEDED" (or FAILED for troubleshooting).
+        3. When SUCCEEDED, call read_resource on "result_resource" (resource://jobs/<id>.json) to fetch the artifact.
+        4. If FAILED, inspect logs/error, address the issue, and optionally restart the job.
 
     Returns:
         JSON string with fields:

@@ -21,11 +21,10 @@ Codex CLI terminates tool calls that run longer than ~60 seconds. To keep `get_p
    - Automated test: added integration tests with stubbed readers confirming job completion yields resource handles and artifacts.
    - Manual test: run both job starters against a sample save, poll via `get_job_status`, and download the JSON to confirm completeness.
 
-4. **Describe the new usage pattern to the LLM**
-   - Update each new tool docstring to emphasize "this call starts a job; poll `get_job_status`" and document log accumulation semantics.
-   - Amend `SCRIBE_Master_Prompt_KSP_MCP.md` with a subsection outlining the start -> poll -> download workflow and listing the relevant tool names.
-   - Automated test: extend the prompt/doc lint script (or add one) that scans for the job tool docstrings and prompt section to guarantee phrasing is present.
-   - Manual test: review the updated prompt in the MCP UI or text editor to confirm clarity and placement.
+4. **Describe the new usage pattern to the LLM** (done)
+   - Updated each job tool docstring to emphasize "start -> poll -> read_resource" and documented log semantics.
+   - Amended `SCRIBE_Master_Prompt_KSP_MCP.md` with a subsection outlining the workflow and tool names.
+   - Manual test: reviewed the updated prompt/docstrings in the repo to confirm clarity and placement.
 
 5. **Revise Codex playbooks / user docs**
    - Update the blueprint retrieval playbook (in `artifacts/` or `knowledge_tools.md`) to show the exact command sequence for fetching staging plans via jobs, including failure-handling guidance.

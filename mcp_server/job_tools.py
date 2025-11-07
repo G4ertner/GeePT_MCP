@@ -85,8 +85,9 @@ def start_part_tree_job(
 
     Usage pattern:
         1. Call start_part_tree_job(...) to enqueue the work; it returns a job_id immediately.
-        2. Poll get_job_status(job_id) until status is SUCCEEDED, then read the result_resource URI.
-        3. Use read_resource on the URI (resource://jobs/<id>.json) to download the JSON artifact.
+        2. Poll get_job_status(job_id) until status is SUCCEEDED.
+        3. Call read_resource on the returned result_resource (resource://jobs/<id>.json) to download the JSON artifact.
+        4. Use the downloaded part tree for planning, then continue with other tools/scripts as needed.
     """
     params = {
         "address": address,
@@ -111,7 +112,11 @@ def start_stage_plan_job(
     """
     Start a background job that computes the per-stage delta-v/TWR plan via readers.stage_plan_approx.
 
-    Usage pattern mirrors start_part_tree_job: enqueue, poll get_job_status, then download the artifact.
+    Usage pattern:
+        1. Call start_stage_plan_job(...) (optionally choose environment) to enqueue the work.
+        2. Poll get_job_status(job_id) until status is SUCCEEDED.
+        3. Call read_resource on the result_resource (resource://jobs/<id>.json) to download the stage plan JSON.
+        4. Incorporate the staging data into your burn planning workflow (e.g., playbooks, scripts).
     """
     params = {
         "address": address,
@@ -128,4 +133,3 @@ def start_stage_plan_job(
         reader=readers.stage_plan_approx,
         reader_kwargs=reader_kwargs,
     )
-
