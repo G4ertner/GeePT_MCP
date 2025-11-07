@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import List
 
+from .jobs import JobStatus, job_registry
 from .server import mcp
 from krpc_index import KRPCSearchIndex, load_dataset
 
@@ -64,3 +66,42 @@ def get_krpc_doc(url: str, max_chars: int = 5000) -> str:
     if len(body) > max_chars:
         body = body[: max_chars - 1].rstrip() + "…"
     return f"{doc.title}\n{doc.url}\n\nHeadings: {heads}\n\n{body}"
+
+
+@mcp.tool()
+def get_job_status(job_id: str) -> str:
+    """
+    Poll the status of a background job started by tools such as start_part_tree_job.
+
+    Usage pattern:
+        1. Call the job-starting tool (e.g., start_part_tree_job) which returns a job_id.
+        2. Poll get_job_status(job_id) until "status" == "SUCCEEDED".
+        3. If "status" == "FAILED", inspect the logs and error message to diagnose.
+
+    Returns:
+        JSON string with fields:
+            - job_id: the requested identifier
+            - status: PENDING | RUNNING | SUCCEEDED | FAILED (or UNKNOWN when not found)
+            - created_at / started_at / finished_at timestamps (ISO 8601, UTC) when available
+            - logs: accumulated stdout/stderr/log entries
+            - result_resource: resource URI containing the job output, if produced
+            - error: error description when failed or unknown
+            - metadata: any job-specific metadata stored at creation time
+            - ok: boolean convenience flag (false when FAILED or UNKNOWN)
+    """
+    state = job_registry.get_state(job_id)
+    if state is None:
+        payload = {
+            "job_id": job_id,
+            "status": "UNKNOWN",
+            "error": "Job not found. Ensure you called a job-starting tool first.",
+            "logs": [],
+            "result_resource": None,
+            "metadata": {},
+            "ok": False,
+        }
+        return json.dumps(payload)
+
+    payload = state.as_dict()
+    payload["ok"] = state.status != JobStatus.FAILED
+    return json.dumps(payload)

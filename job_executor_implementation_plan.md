@@ -11,14 +11,14 @@ Codex CLI terminates tool calls that run longer than ~60 seconds. To keep `get_p
    - Automated test: unit-test the registry lifecycle using a fake executor to cover state transitions, log buffering, and resource URL attachment.
    - Manual test: run a REPL against the registry helper to enqueue a dummy job and verify status/log updates progress as expected.
 
-2. **Define the polling tool contract**
-   - Introduce `get_job_status(job_id: str)` in `mcp_server/tools.py` that reads from the registry and returns JSON with status, optional `result_resource`, and accumulated logs. Include a docstring instructing agents to poll until `status == "SUCCEEDED"`.
-   - Automated test: add a lightweight tools test that seeds the registry with synthetic jobs and asserts the serialized payload structure.
+2. **Define the polling tool contract** (done)
+   - Introduced `get_job_status(job_id: str)` in `mcp_server/tools.py` that reads from the registry and returns JSON with status, optional `result_resource`, and accumulated logs. The docstring now instructs agents to poll until `status == "SUCCEEDED"`.
+   - Automated test: added a tools test that seeds the registry with synthetic jobs and asserts the serialized payload structure.
    - Manual test: start the MCP server, call `get_job_status` for an unknown ID (expect a clear error), then for a live job to watch status progression.
 
-3. **Wrap the heavy readers in job starters**
-   - Create `start_part_tree_job` and `start_stage_plan_job` tools that enqueue callables invoking `readers.part_tree` / `readers.stage_plan_approx`, write outputs to `artifacts/jobs/<job_id>.json`, register the resources, and capture incremental logs.
-   - Automated test: write a small integration test with stubbed readers to ensure job completion emits a resource handle and log trail.
+3. **Wrap the heavy readers in job starters** (done)
+   - Created `start_part_tree_job` and `start_stage_plan_job` tools that enqueue callables invoking `readers.part_tree` / `readers.stage_plan_approx`, write outputs to `artifacts/jobs/<job_id>.json`, register the resources, and capture incremental logs.
+   - Automated test: added integration tests with stubbed readers confirming job completion yields resource handles and artifacts.
    - Manual test: run both job starters against a sample save, poll via `get_job_status`, and download the JSON to confirm completeness.
 
 4. **Describe the new usage pattern to the LLM**
