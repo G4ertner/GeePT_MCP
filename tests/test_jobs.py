@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 
 from mcp_server.jobs import JobRegistry, JobStatus
 
@@ -41,4 +43,29 @@ def test_job_failure_captures_error_and_stderr():
     assert state.status is JobStatus.FAILED
     assert "kaboom" in (state.error or "")
     assert any("stderr" in line and "things went boom" in line for line in state.logs)
+    registry.shutdown()
+
+
+def test_cancel_job_marks_state_and_runs_callback():
+    registry = JobRegistry(max_workers=1)
+    stop_event = threading.Event()
+    callback_triggered = []
+
+    def job(handle):
+        def cancel_cb():
+            callback_triggered.append(True)
+            stop_event.set()
+        handle.register_cancel_callback(cancel_cb)
+        while not stop_event.is_set():
+            handle.log("waiting for cancel")
+            time.sleep(0.05)
+
+    job_id = registry.create_job(job)
+    resp = registry.cancel_job(job_id)
+    assert resp["ok"]
+    registry.wait_for(job_id, timeout=5)
+    state = registry.get_state(job_id)
+    assert state is not None
+    assert state.status is JobStatus.CANCELLED
+    assert callback_triggered
     registry.shutdown()

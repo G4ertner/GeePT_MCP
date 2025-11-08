@@ -82,13 +82,13 @@ def get_job_status(job_id: str) -> str:
     Returns:
         JSON string with fields:
             - job_id: the requested identifier
-            - status: PENDING | RUNNING | SUCCEEDED | FAILED (or UNKNOWN when not found)
+            - status: PENDING | RUNNING | SUCCEEDED | FAILED | CANCELLED (or UNKNOWN when not found)
             - created_at / started_at / finished_at timestamps (ISO 8601, UTC) when available
             - logs: accumulated stdout/stderr/log entries
             - result_resource: resource URI containing the job output, if produced
             - error: error description when failed or unknown
             - metadata: any job-specific metadata stored at creation time
-            - ok: boolean convenience flag (false when FAILED or UNKNOWN)
+            - ok: boolean convenience flag (false when FAILED, CANCELLED, or UNKNOWN)
     """
     state = job_registry.get_state(job_id)
     if state is None:
@@ -104,5 +104,20 @@ def get_job_status(job_id: str) -> str:
         return json.dumps(payload)
 
     payload = state.as_dict()
-    payload["ok"] = state.status != JobStatus.FAILED
+    payload["ok"] = state.status not in (JobStatus.FAILED, JobStatus.CANCELLED)
     return json.dumps(payload)
+
+
+@mcp.tool()
+def cancel_job(job_id: str, reason: str | None = None) -> str:
+    """
+    Request cancellation of a running background job (if supported).
+
+    When to use:
+        - Abort a long-running job that is no longer needed or must stop for safety reasons. Follow up by reverting/loading the appropriate checkpoint before proceeding.
+
+    Returns:
+        JSON: { ok: bool, message: str }
+    """
+    result = job_registry.cancel_job(job_id, reason or "Cancelled by user request.")
+    return json.dumps(result)

@@ -74,7 +74,7 @@ The `execute_script` tool allows your LLM to run kRPC Python code against your r
 - a preconfigured `logging` module and a `log(msg)` convenience function
 - A status summary of flight variables after successful execution or catastrophic failure
 
-Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step.
+Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step. For burns that need more than ~60 s of supervision, use `start_execute_script_job` instead: it streams stdout/stderr into `get_job_status`, lets you alternate those polls with `get_status_overview`/`get_flight_snapshot`, and can be aborted instantly via `cancel_job(job_id)` if telemetry goes sideways.
 
 ### 🛠️ Vessel blueprints & diagrams
 
@@ -125,9 +125,16 @@ On top of that, the MCP server comes with a whole set of hardcoded tools your LL
 
 #### 🚀 Launch & Vessels
 - `launch_vessel` — Launches a craft from VAB/SPH at a site.
-- `list_launchable_vessels` — Lists craft available in VAB/SPH.
-- `list_launch_sites` — Lists available launch sites.
-- `list_vessels` — Lists vessels in the save.
+- `list_launchable_vessels` - Lists craft available in VAB/SPH.
+- `list_launch_sites` - Lists available launch sites.
+- `list_vessels` - Lists vessels in the save.
+
+#### 🧠 Script Jobs & Control
+- `start_execute_script_job` - Run execute_script as a cancellable job with live log streaming; alternate get_job_status with vessel status checks to monitor the burn.
+- `get_job_status` - Poll any background job (part tree, stage plan, script, etc.) for live logs and the result_resource URI.
+- `cancel_job` - Abort a running job (kill a script mid-flight) before reverting/loading checkpoints.
+
+**Script job workflow:** start the job, loop on `get_job_status(job_id)` to read logs, interleave those polls with situational tools (`get_status_overview`, `get_flight_snapshot`, etc.), and if telemetry looks wrong call `cancel_job(job_id)` immediately and revert/load before continuing.
 
 #### 🌍 Bodies & Waypoints
 - `list_bodies` — Lists celestial bodies with key metadata.

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from mcp_server import job_tools
+from mcp_server import job_tools, executor_tools
 from mcp_server.job_artifacts import job_artifact_path, job_resource_uri
 from mcp_server.jobs import JobStatus, job_registry
 
@@ -23,7 +23,7 @@ def _wait_for_completion(job_id: str, timeout: float = 5.0) -> None:
     job_registry.wait_for(job_id, timeout=timeout)
     state = job_registry.get_state(job_id)
     assert state is not None
-    assert state.status in (JobStatus.SUCCEEDED, JobStatus.FAILED)
+    assert state.status in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
 def test_start_part_tree_job_creates_artifact(monkeypatch, tmp_path: Path):
@@ -93,3 +93,48 @@ def test_start_stage_plan_job_passes_environment(monkeypatch, tmp_path: Path):
     assert data["kind"] == "stage_plan"
     assert data["params"]["environment"] == "vacuum"
     assert captured_environment == ["vacuum"]
+
+
+def test_start_execute_script_job_creates_artifact(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("mcp_server.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
+
+    def fake_run_execute_script(**kwargs):
+        handle = kwargs.pop("job_handle", None)
+        assert handle is not None
+        handle.log("[stdout] hello world")
+        return {
+            "ok": True,
+            "summary": "done",
+            "transcript": "print\\nSUMMARY: done",
+            "stdout": "print",
+            "stderr": "",
+            "error": None,
+            "paused": True,
+            "unpaused": False,
+            "timing": {"exec_time_s": 1.0},
+            "pre_pause_flight": None,
+        }
+
+    monkeypatch.setattr(executor_tools, "_run_execute_script", fake_run_execute_script)
+
+    payload = json.loads(
+        executor_tools.start_execute_script_job(
+            "print('hi')",
+            "127.0.0.1",
+            rpc_port=50000,
+            stream_port=50001,
+            name="Test",
+        )
+    )
+    job_id = payload["job_id"]
+    _wait_for_completion(job_id)
+
+    state = job_registry.get_state(job_id)
+    assert state is not None
+    assert state.status is JobStatus.SUCCEEDED
+    assert state.result_resource == job_resource_uri(job_id)
+
+    artifact = job_artifact_path(job_id)
+    assert artifact.exists()
+    data = json.loads(artifact.read_text())
+    assert data["kind"] == "execute_script"

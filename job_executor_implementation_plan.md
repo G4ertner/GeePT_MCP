@@ -41,3 +41,42 @@ Codex CLI terminates tool calls that run longer than ~60 seconds. To keep `get_p
    - Manual test: run a long-lived script via the new job starter, observe log updates through polling, and download the final artifacts.
 
 Following these steps keeps the rollout incremental: infrastructure ships first, `get_stage_plan`/`get_part_tree` gain job starters for validation, and only then is `execute_script` migrated.
+
+
+  1. Map the current script pipeline
+      - Audit mcp_server/executor_tools.py and any helper modules (parsers, subprocess runner) to understand how code is
+        launched, how stdout/stderr are captured, and where pausing/unpausing occurs.
+      - Identify reusable pieces that both the existing synchronous execute_script and the upcoming job version can
+        share (e.g., config generation, subprocess invocation, result parsing).
+  2. Extend the job infrastructure for cancellation & streaming
+      - Enhance JobRegistry (or layer atop it) with optional “termination handles,” so certain jobs can be cancelled
+        mid-flight.
+      - Define a job_cancellations map storing per-job callbacks/events. When cancel_job(job_id) (new tool) is invoked,
+        set a cancellation flag and run the registered callback (for scripts, this will terminate the subprocess).
+      - Ensure _LogStream/append_log already provide incremental log lines; verify they’ll handle high-volume script
+        output without blocking.
+  3. Refactor script execution core for reuse
+      - Factor the guts of execute_script into a helper that can either run synchronously (legacy tool) or under a job
+        wrapper.
+      - The helper should expose hooks for:
+        a. Feeding live stdout/stderr lines into job_handle.log(...) as they appear.
+        b. Emitting periodic status updates (e.g., “script running…”, “SUMMARY detected”).
+        c. Accepting an external cancellation event so we can halt the subprocess cleanly.
+  4. Implement start_execute_script_job tool
+      - API mirrors execute_script arguments (code, address, timeout flags, etc.) plus optional job_note.
+      - Job function spins up the refactored executor helper, wiring stdout/stderr to log-stream callbacks, and saves
+        the final JSON result to artifacts/jobs/<job_id>.json (same pattern as other jobs).
+      - On any failure/cancellation, mark the job FAILED with error payload so get_job_status reports a clear reason.
+  5. Add cancel_job / stop_execute_script_job tool
+      - Provide a user-facing MCP tool (likely general-purpose cancel_job(job_id)) that:
+        • Validates the job exists and is cancellable.
+        • Invokes the stored cancel callback (terminating the script subprocess, pausing KSP if needed).
+        log lines, and result_resource once the script completes.
+      - Refresh docstrings, SCRIBE prompt, README, and any playbooks to mention the new start_execute_script_job +
+        cancel_job flow and reiterate the start→poll→read_resource pattern (plus when to abort).
+      - Highlight that for short scripts, the legacy execute_script still exists, but long or risky burns should use the
+        job version.
+  7. Testing & validation
+        • Launch an actual script job against KSP, poll get_job_status to confirm logs stream and artifact is readable.
+        • Trigger cancel_job mid-script (e.g., while throttling) to ensure the rocket can be saved and the job reports
+        cancellation cleanly.
