@@ -15,6 +15,7 @@ env/
 # Caches / scratch
 *.sqlite
 krpc_docs_cache*
+artifacts/
 
 # Data outputs (include main dataset + manifest; keep backups ignored)
 data/krpc_python_docs.full.jsonl
@@ -27,9 +28,10 @@ data/errors.json
 
 # Build artifacts
 *.egg-info/
+krpc_docs.egg-info/
 
 # Local environment files (API keys)
 .env
-krpc-snippets/.env
-krpc-snippets/data/enrich_cache/
-krpc-snippets/data/embed_cache/
+data/krpc-snippets/.env
+data/krpc-snippets/enrich_cache/
+data/krpc-snippets/embed_cache/

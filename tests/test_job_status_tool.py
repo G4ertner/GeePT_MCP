@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import time
 
-from mcp_server.jobs import job_registry
-from mcp_server.tools import get_job_status
+from mcp_server.executor_tools.jobs import job_registry
+from mcp_server.libraries import get_job_status
 
 
 def _wait_for_status(job_id: str, timeout: float = 5.0) -> dict:

@@ -1,0 +1,730 @@
+from __future__ import annotations
+
+from .mcp_context import mcp
+from .general_tools_impl import (
+    aerodynamics_and_engines,
+    blueprints,
+    blueprints_parts_and_staging,
+    bodies_and_waypoints,
+    connection_and_save,
+    diagnostics,
+    docking,
+    environment_and_surface,
+    flight_and_control,
+    launch_and_vessel,
+    maneuver_nodes,
+    orbit_and_navigation,
+    planning_helpers,
+    power_and_resources,
+    status_and_time,
+    target_control,
+)
+
+
+# 🔌💾 Connection & save 🔌💾 ---------------------------------------------------------------------
+@mcp.tool()
+def krpc_get_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Connect to a running kRPC server and return its version (and active vessel if available).
+
+When to use:
+    - Quick connectivity check and basic context before calling other tools.
+
+Args:
+    address: LAN IP or hostname of the KSP PC
+    rpc_port: RPC port (default 50000)
+    stream_port: Stream port (default 50001)
+    name: Optional connection name shown in kRPC UI
+    timeout: Connection timeout in seconds
+Returns:
+    A short status string, or an error message if connection fails."""
+    return connection_and_save.krpc_get_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def revert_to_launch(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Revert the current flight to launch (KSP's Revert to Launch).
+
+When to use:
+  - Reset a mission after a failed ascent or test, returning the rocket to the launch pad.
+
+Notes:
+  - This calls SpaceCenter.revert_to_launch(). If revert is disabled or not available in the current scene,
+    returns a message indicating it cannot revert."""
+    return connection_and_save.revert_to_launch(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def save_llm_checkpoint(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, tag: str | None = None, prefix: str = 'LLM') -> str:
+    """Save a game checkpoint under a unique LLM-namespaced name.
+
+Behavior:
+  - Generates a unique save name like: "<prefix>_YYYYmmddTHHMMSSZ_<id>".
+  - Uses SpaceCenter.save(name) instead of quicksave() to avoid overwriting the user's quicksave.
+
+Args:
+  tag: Optional label included in the generated name for readability.
+  prefix: Namespace prefix (default "LLM").
+
+Returns JSON: { ok, save_name, note? }."""
+    return connection_and_save.save_llm_checkpoint(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, tag=tag, prefix=prefix)
+
+
+@mcp.tool()
+def load_llm_checkpoint(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, save_name: str = '', require_llm_prefix: bool = True, pause_after: bool = True) -> str:
+    """Load a previously saved checkpoint by name using SpaceCenter.load(name).
+
+Safeguards:
+  - By default, only loads names starting with "LLM_" (set require_llm_prefix=false to override).
+
+Returns JSON: { ok, loaded?: save_name, error? }."""
+    return connection_and_save.load_llm_checkpoint(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, save_name=save_name, require_llm_prefix=require_llm_prefix, pause_after=pause_after)
+
+
+@mcp.tool()
+def quicksave(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Save a quicksave (SpaceCenter.quicksave()).
+
+Notes:
+  - This overwrites the game's single quicksave slot. Prefer save_llm_checkpoint to create namespaced saves."""
+    return connection_and_save.quicksave(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def quickload(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, pause_after: bool = True) -> str:
+    """Load from the quicksave slot (SpaceCenter.quickload()).
+
+Notes:
+  - Prefer load_llm_checkpoint for named saves to avoid conflict with a player's quicksave."""
+    return connection_and_save.quickload(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, pause_after=pause_after)
+
+
+# 🛰️⏱️ Status & time 🛰️⏱️ ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_status_overview(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Combined snapshot of core vessel/game status in a single call.
+
+When to use:
+  - Summarize state for planning, logging, or sanity checks.
+
+Returns:
+  JSON: { vessel, environment, flight, orbit, time, attitude, aero, maneuver_nodes }."""
+    return status_and_time.get_status_overview(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_vessel_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Basic vessel info for the active craft.
+
+When to use:
+  - High-level status summaries and sanity checks prior to planning.
+
+Args:
+  address: LAN IP/hostname of the KSP PC
+  rpc_port: kRPC RPC port (default 50000)
+  stream_port: kRPC stream port (default 50001)
+  name: Optional connection name shown in kRPC UI
+  timeout: Connection timeout in seconds
+
+Returns:
+  JSON string: { name, mass_kg, throttle, situation }"""
+    return status_and_time.get_vessel_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_time_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Time context for the current save.
+
+When to use:
+  - Scheduling burns, warp decisions, or synchronizing UT across tools.
+
+Returns:
+  JSON: { universal_time_s, mission_time_s }."""
+    return status_and_time.get_time_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🌍🧭 Environment & surface 🌍🧭 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_environment_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Environment info for the current body and situation.
+
+When to use:
+  - Context for aerodynamics, entry/landing planning, and surface ops.
+
+Args:
+  address: LAN IP/hostname of the KSP PC
+  rpc_port: kRPC RPC port (default 50000)
+  stream_port: kRPC stream port (default 50001)
+  name: Optional connection name shown in kRPC UI
+  timeout: Connection timeout in seconds
+
+Returns:
+  JSON: { body, in_atmosphere, surface_gravity_m_s2, biome?, static_pressure_pa?,
+  temperature_k?, atmosphere, atmosphere_depth_m }."""
+    return environment_and_surface.get_environment_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_surface_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Surface context at current location: latitude/longitude, surface altitude, terrain height,
+estimated ground slope, and ground speed.
+
+Returns:
+  JSON: { latitude_deg, longitude_deg, surface_altitude_m, terrain_height_m,
+  slope_deg, ground_speed_m_s, body }."""
+    return environment_and_surface.get_surface_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# ✈️🎮 Flight & control ✈️🎮 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_flight_snapshot(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Flight snapshot for the active vessel.
+
+When to use:
+  - Real-time monitoring, ascent/descent guidance, atmosphere checks.
+
+Returns:
+  JSON: { altitude_sea_level_m, altitude_terrain_m, vertical_speed_m_s,
+  speed_surface_m_s, speed_horizontal_m_s, dynamic_pressure_pa, mach,
+  g_force, angle_of_attack_deg, pitch_deg, roll_deg, heading_deg }."""
+    return flight_and_control.get_flight_snapshot(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+
+
+def get_attitude_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Attitude/control state for the active vessel.
+
+When to use:
+  - Verify SAS/RCS/throttle state and autopilot targets before burns.
+
+Returns:
+  JSON: { sas, sas_mode, rcs, throttle, autopilot_state, autopilot_target_pitch,
+  autopilot_target_heading, autopilot_target_roll }."""
+    return flight_and_control.get_attitude_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_action_groups_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Action group toggles.
+
+When to use:
+  - Verify control safety and configuration pre‑burn or pre‑entry.
+
+Returns:
+  JSON: { sas, rcs, lights, gear, brakes, abort, custom_1..custom_10 }."""
+    return flight_and_control.get_action_groups_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+
+
+def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Active camera parameters when available: mode, pitch, heading, distance, and limits.
+
+Returns:
+  JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
+  min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
+    return flight_and_control.get_camera_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🌬️🚀 Aerodynamics & engines 🌬️🚀 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_aero_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Aerodynamic state.
+
+When to use:
+  - Ascent/descent control, max-Q checks, aero stress monitoring.
+
+Returns:
+  JSON: { dynamic_pressure_pa, mach, atmosphere_density_kg_m3, drag?, lift? }."""
+    return aerodynamics_and_engines.get_aero_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_engine_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Per-engine status for the active vessel.
+
+When to use:
+  - Engine diagnostics before/after burns, checking flameouts or throttling.
+
+Returns:
+  JSON array of engines with: { part, active, has_fuel, flameout, thrust_n,
+  max_thrust_n, specific_impulse_s, throttle }."""
+    return aerodynamics_and_engines.get_engine_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🔋⛽ Power & resources 🔋⛽ ---------------------------------------------------------------------
+
+
+mcp.tool()
+def get_power_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """ElectricCharge summary with generator/consumer counts and best‑effort estimates.
+
+When to use:
+  - Power budgeting, troubleshooting brown‑outs, and mission readiness checks.
+
+Returns:
+  JSON: { vessel_totals: { amount, max }, production: { solar?, rtg?, fuel_cells? },
+  consumers: { wheels?, antennas?, lights? }, notes?: [..] }."""
+    return power_and_resources.get_power_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_resource_breakdown(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Aggregate resource totals for the whole vessel and the current stage.
+
+When to use:
+  - Fuel/electricity accounting, staging decisions, consumables monitoring.
+
+Returns:
+  JSON: { vessel_totals: {Resource: {amount, max}}, stage_totals: {…}, current_stage }."""
+    return power_and_resources.get_resource_breakdown(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 📐🧩🪜 Blueprints, parts & staging 📐🧩🪜 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_part_tree(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Hierarchical part tree with staging and module/resource summaries.
+
+Note:
+  This synchronous call can exceed the CLI's 60 s limit on large vessels.
+  Prefer start_part_tree_job -> get_job_status(job_id) -> read_resource(result_resource)
+  when you need a full tree safely; fall back to this direct call only for quick checks.
+
+Returns:
+  JSON: { parts: [ { id, title, name, tag?, stage, decouple_stage?, parent_id?, children_ids[],
+          modules: [...], resources: {R:{amount,max}}, crossfeed? } ] }"""
+    return blueprints_parts_and_staging.get_part_tree(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_vessel_blueprint(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Idealized vessel blueprint combining meta, stage plan, engines, control capabilities, and part tree.
+
+When to use:
+  - Give the agent a structural understanding of the craft before writing scripts.
+
+Returns:
+  JSON with sections: meta, stages, engines, control_capabilities, parts, geometry, notes."""
+    return blueprints_parts_and_staging.get_vessel_blueprint(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_blueprint_ascii(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Compact ASCII schematic/summary of the current vessel by stage.
+
+Includes a header and a per-stage table with engine counts, Δv, TWR,
+and key part category counts (Eng/Tank/Dec/Par/Dock)."""
+    return blueprints_parts_and_staging.get_blueprint_ascii(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_stage_plan(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, environment: str = 'current') -> str:
+    """Approximate stock‑like staging plan by grouping decouple‑only stages under the
+preceding engine stage.
+
+Note:
+  For big rockets this direct call can exceed the 60 s CLI limit. Prefer
+  start_stage_plan_job -> get_job_status(job_id) -> read_resource(result_resource)
+  to fetch the JSON artifact safely, and reserve this helper for quick snapshots.
+
+When to use:
+  - Match KSP’s staging view for Δv/TWR per engine stage.
+
+Args:
+  environment: 'current' | 'sea_level' | 'vacuum' — controls Isp used
+
+Returns:
+  JSON: { stages: [ { stage, engines, max_thrust_n, combined_isp_s?, prop_mass_kg,
+  m0_kg, m1_kg, delta_v_m_s?, twr_surface? } ] }."""
+    return blueprints_parts_and_staging.get_stage_plan(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, environment=environment)
+
+
+@mcp.tool()
+def get_staging_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Approximate per-stage delta‑v and TWR plan using current engine Isp and resource masses.
+
+When to use:
+  - Quick staging analysis for mission planning and sanity checks.
+
+Returns:
+  JSON: { current_stage, stages: [ { stage, engines, max_thrust_n,
+  combined_isp_s?, delta_v_m_s?, twr_surface?, prop_mass_kg, m0_kg, m1_kg } ] }.
+
+Note: Uses standard KSP resource densities and current environment Isp; results are estimates."""
+    return blueprints_parts_and_staging.get_staging_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🪐📡 Orbit & navigation 🪐📡 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_orbit_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Orbital elements for the active vessel.
+
+When to use:
+  - Planning nodes, verifying orbit changes, or summarizing current orbit.
+
+Returns:
+  JSON: { body, apoapsis_altitude_m, time_to_apoapsis_s, periapsis_altitude_m,
+  time_to_periapsis_s, eccentricity, inclination_deg, lan_deg,
+  argument_of_periapsis_deg, semi_major_axis_m, period_s }."""
+    return orbit_and_navigation.get_orbit_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_navigation_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Coarse navigation info to the current target (body or vessel).
+
+When to use:
+  - Pre‑planning checks for plane changes, phasing, and transfers.
+
+Returns:
+  If body target: { target_type: 'body', name, target_sma_m, target_period_s,
+  target_inclination_deg, target_lan_deg, phase_angle_deg? }.
+  If vessel target: { target_type: 'vessel', name, distance_m?, relative_speed_m_s?,
+  relative_inclination_deg?, phase_angle_deg? }."""
+    return orbit_and_navigation.get_navigation_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_targeting_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Current target summary across vessel/body/docking targets with relative geometry when available.
+
+Returns:
+  JSON: { target_type: 'vessel'|'body'|'docking_port'|None, target_name, target_vessel?,
+  distance_m?, relative_speed_m_s? }."""
+    return orbit_and_navigation.get_targeting_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🎯🛰️ Target control 🎯🛰️ ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def set_target_body(address: str, body_name: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Set the active vessel's target body (also tries SpaceCenter.target_body).
+
+Args:
+  body_name: Exact body name (e.g., 'Mun')
+
+Returns:
+  Human‑readable status string or an error if not found."""
+    return target_control.set_target_body(address=address, body_name=body_name, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def set_target_vessel(address: str, vessel_name: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Set the active vessel's target vessel by name (case‑insensitive). Chooses nearest if multiple.
+Also attempts to set SpaceCenter.target_vessel.
+
+Args:
+  vessel_name: Exact or case‑insensitive vessel name
+
+Returns:
+  Human‑readable status string or error if not found."""
+    return target_control.set_target_vessel(address=address, vessel_name=vessel_name, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def clear_target(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Clear target_docking_port, target_vessel, and target_body if set.
+
+Returns:
+  Human‑readable status string: 'Cleared target.' or 'No target to clear.'"""
+    return target_control.clear_target(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🌌📍 Bodies & waypoints 🌌📍 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_bodies(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """List celestial bodies known to kRPC with key metadata.
+
+When to use:
+  - Pick targets for transfers; validate body names.
+
+Returns:
+  JSON array: { name, parent?, has_atmosphere, radius_m, soi_radius_m }."""
+    return bodies_and_waypoints.list_bodies(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def list_waypoints(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Waypoints known to the waypoint manager, with vessel-relative range/bearing where possible.
+
+Returns:
+  JSON array: { name, body, latitude_deg, longitude_deg, altitude_m,
+  distance_m?, bearing_deg? }."""
+    return bodies_and_waypoints.list_waypoints(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🚀🛠️ Launch & vessels 🚀🛠️ ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_launch_sites(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """List available launch sites (e.g., "LaunchPad", "Runway")."""
+    return launch_and_vessel.list_launch_sites(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def list_launchable_vessels(address: str, craft_directory: str = 'VAB', rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """List the names of craft files that can be launched from the specified directory ("VAB" or "SPH")."""
+    return launch_and_vessel.list_launchable_vessels(address=address, craft_directory=craft_directory, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def launch_vessel(address: str, craft_directory: str, name: str, launch_site: str = 'LaunchPad', recover: bool = True, crew: list[str] | None = None, flag_url: str = '', rpc_port: int = 50000, stream_port: int = 50001, conn_name: str | None = None, timeout: float = 10.0) -> str:
+    """Launch a saved vessel (.craft) to a site via SpaceCenter.launch_vessel.
+
+Args:
+  craft_directory: "VAB" or "SPH"
+  name: Craft filename without ".craft" (must exist in the save's Ships/<dir> folder)
+  launch_site: "LaunchPad" or "Runway"
+  recover: If true, recover an existing vessel on the site before launch
+  crew: Optional list of Kerbal names to assign
+  flag_url: Optional asset URL for mission flag
+
+Returns JSON: { ok, active_vessel?, error? }."""
+    return launch_and_vessel.launch_vessel(address=address, craft_directory=craft_directory, name=name, launch_site=launch_site, recover=recover, crew=crew, flag_url=flag_url, rpc_port=rpc_port, stream_port=stream_port, conn_name=conn_name, timeout=timeout)
+
+
+@mcp.tool()
+def list_vessels(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """List vessels in the current save with type/situation and optional distance.
+
+Returns:
+  JSON array: { name, type?, situation?, distance_m? }."""
+    return launch_and_vessel.list_vessels(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🧭🧮 Maneuver nodes 🧭🧮 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_maneuver_nodes(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """List basic maneuver nodes.
+
+When to use:
+  - Quick overview of planned burns with timing and total delta‑v.
+
+Returns:
+  JSON array: { ut, time_to_node_s, delta_v_m_s }."""
+    return maneuver_nodes.list_maneuver_nodes(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def list_maneuver_nodes_detailed(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Detailed maneuver nodes for the active vessel including vector and simple burn-time estimate.
+
+Returns:
+  JSON array: { ut, time_to_node_s, delta_v_vector_m_s, delta_v_total_m_s,
+  burn_time_simple_s? }."""
+    return maneuver_nodes.list_maneuver_nodes_detailed(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def set_maneuver_node(address: str, ut: float, prograde: float = 0.0, normal: float = 0.0, radial: float = 0.0, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Create a maneuver node at a specific UT with given vector components.
+
+When to use:
+  - Apply a proposed burn from compute_* helpers to the game.
+
+Args:
+  ut: Universal time for the node
+  prograde: Prograde component (m/s)
+  normal: Normal component (m/s)
+  radial: Radial component (m/s)
+
+Returns:
+  JSON echo of the created node parameters."""
+    return maneuver_nodes.set_maneuver_node(address=address, ut=ut, prograde=prograde, normal=normal, radial=radial, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def update_maneuver_node(address: str, node_index: int = 0, ut: float | None = None, prograde: float | None = None, normal: float | None = None, radial: float | None = None, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Edit an existing maneuver node (default: first node).
+
+Args:
+  node_index: 0‑based index (default: 0)
+  ut/prograde/normal/radial: Components to update (None to leave unchanged)
+
+Returns:
+  JSON echo of the updated node: { index, ut, prograde, normal, radial }."""
+    return maneuver_nodes.update_maneuver_node(address=address, node_index=node_index, ut=ut, prograde=prograde, normal=normal, radial=radial, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def delete_maneuver_nodes(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Remove all maneuver nodes for the active vessel.
+
+When to use:
+  - Cleanup after executing nodes or starting a new plan.
+
+Returns:
+  Human‑readable status string with count removed."""
+    return maneuver_nodes.delete_maneuver_nodes(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def warp_to(address: str, ut: float, lead_time_s: float = 0.0, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    return maneuver_nodes.warp_to(address=address, ut=ut, lead_time_s=lead_time_s, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 📝🧠 Planning helpers 📝🧠 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def compute_burn_time(address: str, dv_m_s: float, environment: str = 'current', rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Estimate burn time for a given delta-v using current (or specified) thrust and Isp.
+
+When to use:
+  - Size burns for warp lead time, node placement, or staging checks.
+
+Args:
+  dv_m_s: Desired delta-v in m/s
+  environment: 'current' | 'sea_level' | 'vacuum' — controls Isp estimate
+
+Returns:
+  JSON with mass, thrust, Isp, burn_time_simple_s and burn_time_tsiolkovsky_s."""
+    return planning_helpers.compute_burn_time(address=address, dv_m_s=dv_m_s, environment=environment, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def compute_circularize_node(address: str, at: str = 'apoapsis', rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Propose a circularization node at Ap or Pe.
+
+When to use:
+  - Circularize after insertion or cleanup of eccentric orbits.
+
+Args:
+  at: 'apoapsis' | 'periapsis'
+
+Returns:
+  Proposal: { ut, prograde, normal=0, radial=0, v_now_m_s, v_circ_m_s }."""
+    return planning_helpers.compute_circularize_node(address=address, at=at, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def compute_plane_change_nodes(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Propose plane change burns at next AN/DN relative to target (vessel/body).
+
+When to use:
+  - Align inclinations before rendezvous or transfers.
+
+Returns UT and normal delta-v suggestions for AN and DN when available."""
+    return planning_helpers.compute_plane_change_nodes(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def compute_raise_lower_node(address: str, kind: str, target_alt_m: float, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Propose a single‑burn node to raise/lower apoapsis or periapsis to target_alt_m.
+
+Args:
+  kind: 'apoapsis' | 'periapsis'
+  target_alt_m: Desired altitude above sea level in meters
+
+Returns:
+  Proposal: { ut, prograde, normal=0, radial=0, v_now_m_s, v_target_m_s }."""
+    return planning_helpers.compute_raise_lower_node(address=address, kind=kind, target_alt_m=target_alt_m, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def compute_rendezvous_phase_node(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Suggest a phasing orbit to rendezvous with the current target vessel in the same SOI.
+
+When to use:
+  - Align orbital periods to time an intercept with a target vessel.
+
+Returns:
+  Proposal at next Pe: { ut, prograde, normal=0, radial=0, P_phase_s, m, T_align_s }."""
+    return planning_helpers.compute_rendezvous_phase_node(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def compute_transfer_window_to_body(address: str, body_name: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Compute a Hohmann transfer window to a target body (moon or interplanetary).
+
+When to use:
+  - Time interplanetary or moon transfers from current body context.
+
+Returns phase_now/required/error, time_to_window_s, ut_window, and transfer time.
+Robust fallbacks infer the star/common parent when parent references are missing."""
+    return planning_helpers.compute_transfer_window_to_body(address=address, body_name=body_name, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def compute_ejection_node_to_body(address: str, body_name: str, parking_alt_m: float, environment: str = 'current', rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Coarse ejection burn estimate for an interplanetary transfer to the target body.
+
+When to use:
+  - After computing a transfer window, to place the ejection burn.
+
+Args:
+  body_name: Target planet
+  parking_alt_m: Circular parking orbit altitude (m) around current body
+  environment: Isp environment for burn-time followups ('current'|'sea_level'|'vacuum')
+
+Returns:
+  Proposal at UT window: { ut, prograde, normal=0, radial=0, v_inf_m_s, time_to_window_s }."""
+    return planning_helpers.compute_ejection_node_to_body(address=address, body_name=body_name, parking_alt_m=parking_alt_m, environment=environment, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🧲🛰️ Docking 🧲🛰️ ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_docking_ports(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """List docking ports on the active vessel and their states.
+
+Returns:
+  JSON array: { part, state, ready, dockee }."""
+    return docking.list_docking_ports(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🩺🔧 Diagnostics 🩺🔧 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def get_diagnostics(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Collect a richer diagnostics snapshot to aid post-mortems.
+
+Returns JSON with: vessel, time, environment, flight, orbit, attitude,
+aero, engines, resources, maneuver_nodes, and surface."""
+    return diagnostics.get_diagnostics(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+# 🖼️📤 Blueprints 🖼️📤 ---------------------------------------------------------------------
+
+
+@mcp.tool()
+def export_blueprint_diagram(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, *, format: str = 'svg', out_dir: str | None = None) -> str:
+    return blueprints.export_blueprint_diagram(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, format=format, out_dir=out_dir)
+
+
+@mcp.resource("resource://blueprints/latest")
+def resource_get_latest_blueprint():
+    return blueprints.get_latest_blueprint()
+
+
+@mcp.resource("resource://blueprints/last-diagram.svg")
+def resource_get_last_svg():
+    return blueprints.get_last_svg()
+
+
+@mcp.resource("resource://blueprints/last-diagram.png")
+def resource_get_last_png():
+    return blueprints.get_last_png()
+

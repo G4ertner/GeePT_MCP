@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 
-from mcp_server.jobs import JobRegistry, JobStatus
+from mcp_server.executor_tools.jobs import JobRegistry, JobStatus
 
 
 def test_job_lifecycle_success():

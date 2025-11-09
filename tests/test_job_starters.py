@@ -6,9 +6,10 @@ from typing import Any
 
 import pytest
 
-from mcp_server import job_tools, executor_tools
-from mcp_server.job_artifacts import job_artifact_path, job_resource_uri
-from mcp_server.jobs import JobStatus, job_registry
+from mcp_server import executor_tools
+from mcp_server.executor_tools import job_tools
+from mcp_server.executor_tools.job_artifacts import job_artifact_path, job_resource_uri
+from mcp_server.executor_tools.jobs import JobStatus, job_registry
 
 
 class DummyConn:
@@ -27,7 +28,7 @@ def _wait_for_completion(job_id: str, timeout: float = 5.0) -> None:
 
 
 def test_start_part_tree_job_creates_artifact(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("mcp_server.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
+    monkeypatch.setattr("mcp_server.executor_tools.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
     dummy_conn = DummyConn()
 
     def fake_connect(address: str, rpc_port: int, stream_port: int, name: str | None, timeout: float) -> DummyConn:
@@ -60,7 +61,7 @@ def test_start_part_tree_job_creates_artifact(monkeypatch, tmp_path: Path):
 
 
 def test_start_stage_plan_job_passes_environment(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("mcp_server.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
+    monkeypatch.setattr("mcp_server.executor_tools.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
     dummy_conn = DummyConn()
 
     def fake_connect(address: str, rpc_port: int, stream_port: int, name: str | None, timeout: float) -> DummyConn:
@@ -96,7 +97,7 @@ def test_start_stage_plan_job_passes_environment(monkeypatch, tmp_path: Path):
 
 
 def test_start_execute_script_job_creates_artifact(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("mcp_server.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
+    monkeypatch.setattr("mcp_server.executor_tools.job_artifacts.JOB_ARTIFACTS_DIR", tmp_path, raising=False)
 
     def fake_run_execute_script(**kwargs):
         handle = kwargs.pop("job_handle", None)

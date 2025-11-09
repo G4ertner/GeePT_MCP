@@ -1,0 +1,2226 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List
+from math import atan, atan2, cos, sqrt, radians, sin
+
+from ..physics_utils import G0, simple_burn_time, tsiolkovsky_burn_time
+
+
+def _enum_name(x: Any) -> str:
+    try:
+        return getattr(x, "name", str(x))
+    except Exception:
+        return str(x)
+
+
+def vessel_info(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    ctrl = v.control
+    return {
+        "name": v.name,
+        "mass_kg": v.mass,  # kg
+        "throttle": ctrl.throttle,
+        "situation": _enum_name(v.situation),
+    }
+
+
+def environment_info(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    body = v.orbit.body
+    flight = v.flight()
+    in_atmo = False
+    try:
+        in_atmo = bool(flight.atmosphere)
+    except Exception:
+        try:
+            in_atmo = float(flight.mean_altitude) < float(body.atmosphere_depth)
+        except Exception:
+            in_atmo = False
+    # Optional values
+    pressure = None
+    temp = None
+    try:
+        pressure = flight.static_pressure
+    except Exception:
+        pass
+    try:
+        temp = flight.temperature
+    except Exception:
+        pass
+    biome = None
+    try:
+        biome = flight.biome
+    except Exception:
+        pass
+    # Atmosphere presence (robust across API variants)
+    has_atmo = False
+    for attr in ("has_atmosphere", "atmosphere"):
+        try:
+            val = getattr(body, attr)
+            if isinstance(val, bool):
+                has_atmo = has_atmo or val
+        except Exception:
+            pass
+    try:
+        depth = getattr(body, "atmosphere_depth", None)
+        if depth is not None:
+            has_atmo = has_atmo or (float(depth) > 0)
+    except Exception:
+        pass
+
+    return {
+        "body": body.name,
+        "in_atmosphere": in_atmo,
+        "surface_gravity_m_s2": body.surface_gravity,
+        "biome": biome,
+        "static_pressure_pa": pressure,
+        "temperature_k": temp,
+        "atmosphere": has_atmo,
+        "atmosphere_depth_m": getattr(body, "atmosphere_depth", None),
+    }
+
+
+def flight_snapshot(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    # Use a consistent, meaningful reference frame for velocities: surface rotating frame
+    try:
+        f_surf = v.flight(v.orbit.body.reference_frame)
+    except Exception:
+        f_surf = v.flight()
+    data = {
+        "altitude_sea_level_m": getattr(f_surf, "mean_altitude", None),
+        "altitude_terrain_m": getattr(f_surf, "surface_altitude", None),
+        "vertical_speed_m_s": getattr(f_surf, "vertical_speed", None),
+        "speed_surface_m_s": getattr(f_surf, "speed", None),
+        "speed_horizontal_m_s": getattr(f_surf, "horizontal_speed", None),
+        "dynamic_pressure_pa": getattr(f_surf, "dynamic_pressure", None),
+        "mach": getattr(f_surf, "mach", None),
+        "g_force": getattr(f_surf, "g_force", None),
+        "angle_of_attack_deg": getattr(f_surf, "angle_of_attack", None),
+        "pitch_deg": getattr(f_surf, "pitch", None),
+        "roll_deg": getattr(f_surf, "roll", None),
+        "heading_deg": getattr(f_surf, "heading", None),
+    }
+    # Also provide an orbital/non-rotating frame speed for completeness
+    try:
+        f_orb = v.flight(v.orbit.body.non_rotating_reference_frame)
+        data["speed_orbital_m_s"] = getattr(f_orb, "speed", None)
+    except Exception:
+        pass
+    return data
+
+
+def orbit_info(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    o = v.orbit
+    return {
+        "body": o.body.name,
+        "apoapsis_altitude_m": getattr(o, "apoapsis_altitude", None),
+        "time_to_apoapsis_s": getattr(o, "time_to_apoapsis", None),
+        "periapsis_altitude_m": getattr(o, "periapsis_altitude", None),
+        "time_to_periapsis_s": getattr(o, "time_to_periapsis", None),
+        "eccentricity": getattr(o, "eccentricity", None),
+        "inclination_deg": getattr(o, "inclination", None),
+        "lan_deg": getattr(o, "longitude_of_ascending_node", None),
+        "argument_of_periapsis_deg": getattr(o, "argument_of_periapsis", None),
+        "semi_major_axis_m": getattr(o, "semi_major_axis", None),
+        "period_s": getattr(o, "period", None),
+    }
+
+
+def time_status(conn) -> Dict[str, Any]:
+    sc = conn.space_center
+    v = sc.active_vessel
+    data = {
+        "universal_time_s": sc.ut,
+        "mission_time_s": getattr(v, "met", None),
+    }
+    try:
+        tw = sc.warp
+        data["timewarp_rate"] = getattr(tw, "rate", None)
+        data["timewarp_mode"] = _enum_name(getattr(tw, "mode", None))
+    except Exception:
+        pass
+    return data
+
+
+def attitude_status(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    ctrl = v.control
+    ap = v.auto_pilot
+    data = {
+        "sas": getattr(ctrl, "sas", None),
+        "sas_mode": _enum_name(getattr(ctrl, "sas_mode", None)),
+        "rcs": getattr(ctrl, "rcs", None),
+        "throttle": getattr(ctrl, "throttle", None),
+    }
+    # Autopilot state & targets (best-effort)
+    try:
+        data["autopilot_state"] = _enum_name(getattr(ap, "state", None))
+        data["autopilot_target_pitch"] = getattr(ap, "target_pitch", None)
+        data["autopilot_target_heading"] = getattr(ap, "target_heading", None)
+        data["autopilot_target_roll"] = getattr(ap, "target_roll", None)
+    except Exception:
+        pass
+    return data
+
+
+def aero_status(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    f = v.flight()
+    data = {
+        "dynamic_pressure_pa": getattr(f, "dynamic_pressure", None),
+        "mach": getattr(f, "mach", None),
+        "atmosphere_density_kg_m3": getattr(f, "atmosphere_density", None),
+    }
+    # Optional
+    try:
+        data["drag"] = getattr(f, "drag", None)
+    except Exception:
+        pass
+    try:
+        data["lift"] = getattr(f, "lift", None)
+    except Exception:
+        pass
+    return data
+
+
+def maneuver_nodes_basic(conn) -> List[Dict[str, Any]]:
+    sc = conn.space_center
+    v = sc.active_vessel
+    ut = sc.ut
+    nodes = []
+    try:
+        for n in v.control.nodes:
+            item = {
+                "ut": getattr(n, "ut", None),
+                "time_to_node_s": (getattr(n, "ut", 0) - ut) if getattr(n, "ut", None) is not None else None,
+                "delta_v_m_s": getattr(n, "delta_v", None),
+            }
+            nodes.append(item)
+    except Exception:
+        pass
+    return nodes
+
+
+def engine_status(conn) -> List[Dict[str, Any]]:
+    v = conn.space_center.active_vessel
+    engines = []
+    eng_objs = []
+    try:
+        eng_objs = list(v.parts.engines)
+    except Exception:
+        try:
+            for p in v.parts.all:
+                try:
+                    e = p.engine
+                    if e is not None:
+                        eng_objs.append(e)
+                except Exception:
+                    continue
+        except Exception:
+            eng_objs = []
+
+    for e in eng_objs:
+        part_title = None
+        try:
+            part_title = getattr(e, "part").title
+        except Exception:
+            try:
+                part_title = getattr(getattr(e, "part", None), "name", None)
+            except Exception:
+                part_title = None
+        item = {
+            "part": part_title,
+            "active": getattr(e, "active", None),
+            "has_fuel": getattr(e, "has_fuel", None),
+            "flameout": getattr(e, "flameout", None),
+            "thrust_n": getattr(e, "thrust", None),
+            "max_thrust_n": getattr(e, "max_thrust", None),
+            "specific_impulse_s": getattr(e, "specific_impulse", None),
+            "throttle": getattr(e, "throttle", None),
+        }
+        engines.append(item)
+    return engines
+
+
+def resource_breakdown(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    out: Dict[str, Any] = {"vessel_totals": {}, "stage_totals": {}, "current_stage": None}
+    try:
+        res = v.resources
+        for name in list(getattr(res, "names", []) or []):
+            try:
+                out["vessel_totals"][name] = {
+                    "amount": res.amount(name),
+                    "max": res.max(name),
+                }
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Current stage resource totals (non-cumulative)
+    try:
+        stage = v.control.current_stage
+        out["current_stage"] = stage
+        sres = v.resources_in_decouple_stage(stage, False)
+        for name in list(getattr(sres, "names", []) or []):
+            try:
+                out["stage_totals"][name] = {
+                    "amount": sres.amount(name),
+                    "max": sres.max(name),
+                }
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
+def surface_info(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    body = v.orbit.body
+    f = v.flight()
+    lat = getattr(f, "latitude", None)
+    lon = getattr(f, "longitude", None)
+    surf_alt = getattr(f, "surface_altitude", None)
+    ground_speed = getattr(f, "horizontal_speed", None)
+    slope_deg = None
+    try:
+        if lat is not None and lon is not None:
+            # Sample terrain heights around location to estimate slope
+            step_deg = 0.001
+            lat_rad = radians(lat)
+            R = getattr(body, "equatorial_radius", 600000.0)
+            dlat_m = radians(step_deg) * R
+            dlon_m = radians(step_deg) * R * max(1e-6, cos(lat_rad))
+            h0 = body.surface_height(lat, lon)
+            h_latp = body.surface_height(lat + step_deg, lon)
+            h_latm = body.surface_height(lat - step_deg, lon)
+            h_lonp = body.surface_height(lat, lon + step_deg)
+            h_lonm = body.surface_height(lat, lon - step_deg)
+            if None not in (h0, h_latp, h_latm, h_lonp, h_lonm) and dlat_m and dlon_m:
+                grad_lat = (h_latp - h_latm) / (2 * dlat_m)
+                grad_lon = (h_lonp - h_lonm) / (2 * dlon_m)
+                slope_rad = atan((grad_lat ** 2 + grad_lon ** 2) ** 0.5)
+                slope_deg = slope_rad * 180.0 / 3.141592653589793
+    except Exception:
+        slope_deg = None
+
+    terrain_height = None
+    try:
+        terrain_height = body.surface_height(lat, lon) if (lat is not None and lon is not None) else None
+    except Exception:
+        pass
+
+    return {
+        "latitude_deg": lat,
+        "longitude_deg": lon,
+        "surface_altitude_m": surf_alt,
+        "ground_speed_m_s": ground_speed,
+        "terrain_height_m": terrain_height,
+        "slope_deg": slope_deg,
+        "body": body.name,
+    }
+
+
+def targeting_info(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    out: Dict[str, Any] = {"target_type": None, "target_name": None}
+    body = v.orbit.body
+    ref = getattr(body, "non_rotating_reference_frame", body.reference_frame)
+    sc = conn.space_center
+    try:
+        tv = v.target_vessel
+        if tv is not None:
+            out["target_type"] = "vessel"
+            out["target_name"] = tv.name
+            try:
+                vp = v.position(ref)
+                vv = v.velocity(ref)
+                tp = tv.position(ref)
+                tvv = tv.velocity(ref)
+                dp = [tp[i] - vp[i] for i in range(3)]
+                dv = [tvv[i] - vv[i] for i in range(3)]
+                out["distance_m"] = (dp[0] ** 2 + dp[1] ** 2 + dp[2] ** 2) ** 0.5
+                out["relative_speed_m_s"] = (dv[0] ** 2 + dv[1] ** 2 + dv[2] ** 2) ** 0.5
+            except Exception:
+                pass
+            return out
+    except Exception:
+        pass
+    # Fallback: some clients expose target via SpaceCenter
+    try:
+        tv2 = getattr(sc, "target_vessel", None)
+        if tv2 is not None:
+            out["target_type"] = "vessel"
+            out["target_name"] = tv2.name
+            return out
+    except Exception:
+        pass
+
+    try:
+        tb = v.target_body
+        if tb is not None:
+            out["target_type"] = "body"
+            out["target_name"] = tb.name
+            try:
+                vp = v.position(ref)
+                tp = tb.position(ref)
+                dp = [tp[i] - vp[i] for i in range(3)]
+                out["distance_m"] = (dp[0] ** 2 + dp[1] ** 2 + dp[2] ** 2) ** 0.5
+            except Exception:
+                pass
+            return out
+    except Exception:
+        pass
+    try:
+        tdp = v.target_docking_port
+        if tdp is not None:
+            out["target_type"] = "docking_port"
+            out["target_name"] = getattr(getattr(tdp, "part", None), "title", None)
+            tv = getattr(getattr(tdp, "part", None), "vessel", None)
+            if tv is not None:
+                out["target_vessel"] = tv.name
+                try:
+                    vp = v.position(ref)
+                    tp = tv.position(ref)
+                    dp = [tp[i] - vp[i] for i in range(3)]
+                    out["distance_m"] = (dp[0] ** 2 + dp[1] ** 2 + dp[2] ** 2) ** 0.5
+                except Exception:
+                    pass
+            return out
+    except Exception:
+        pass
+    # Fallback: SpaceCenter-level target body
+    try:
+        tb2 = getattr(sc, "target_body", None)
+        if tb2 is not None:
+            out["target_type"] = "body"
+            out["target_name"] = tb2.name
+            return out
+    except Exception:
+        pass
+
+    out["target_type"] = None
+    return out
+
+
+def maneuver_nodes_detailed(conn) -> List[Dict[str, Any]]:
+    sc = conn.space_center
+    v = sc.active_vessel
+    ut = sc.ut
+    nodes = []
+    # For burn time estimate
+    mass = None
+    thrust = None
+    try:
+        mass = v.mass
+    except Exception:
+        pass
+    try:
+        thrust = v.available_thrust
+        if not thrust or thrust <= 0:
+            # Fallback to sum of max_thrust across engines
+            thrust = 0.0
+            try:
+                for e in v.parts.engines:
+                    mt = getattr(e, "max_thrust", 0.0) or 0.0
+                    thrust += float(mt)
+            except Exception:
+                thrust = None
+    except Exception:
+        thrust = None
+
+    for n in v.control.nodes:
+        dv_vec = getattr(n, "delta_v", None)
+        dv = None
+        if isinstance(dv_vec, (list, tuple)) and len(dv_vec) == 3:
+            dv = float((dv_vec[0] ** 2 + dv_vec[1] ** 2 + dv_vec[2] ** 2) ** 0.5)
+        item = {
+            "ut": getattr(n, "ut", None),
+            "time_to_node_s": (getattr(n, "ut", 0) - ut) if getattr(n, "ut", None) is not None else None,
+            "delta_v_vector_m_s": dv_vec,
+            "delta_v_total_m_s": dv,
+        }
+        # Simple burn time: dv / (thrust/mass)
+        try:
+            if dv is not None and thrust and mass and thrust > 0 and mass > 0:
+                item["burn_time_simple_s"] = dv * mass / thrust
+        except Exception:
+            pass
+        nodes.append(item)
+    return nodes
+
+
+def docking_ports(conn) -> List[Dict[str, Any]]:
+    v = conn.space_center.active_vessel
+    ports = []
+    try:
+        for p in v.parts.docking_ports:
+            entry = {
+                "part": getattr(getattr(p, "part", None), "title", None),
+                "state": _enum_name(getattr(p, "state", None)),
+                "ready": getattr(p, "ready", None),
+                "dockee": getattr(getattr(p, "docked_part", None), "title", None),
+            }
+            ports.append(entry)
+    except Exception:
+        pass
+    return ports
+
+
+def camera_status(conn) -> Dict[str, Any]:
+    sc = conn.space_center
+    out: Dict[str, Any] = {}
+    try:
+        cam = sc.camera
+    except Exception:
+        return {"available": False}
+    out["available"] = True
+    try:
+        out["mode"] = _enum_name(getattr(cam, "mode", None))
+        out["pitch_deg"] = getattr(cam, "pitch", None)
+        out["heading_deg"] = getattr(cam, "heading", None)
+        out["distance_m"] = getattr(cam, "distance", None)
+        out["min_pitch_deg"] = getattr(cam, "min_pitch", None)
+        out["max_pitch_deg"] = getattr(cam, "max_pitch", None)
+        out["min_distance_m"] = getattr(cam, "min_distance", None)
+        out["max_distance_m"] = getattr(cam, "max_distance", None)
+    except Exception:
+        pass
+    return out
+
+
+def _gc_distance_and_bearing(body, lat1, lon1, lat2, lon2):
+    try:
+        R = getattr(body, "equatorial_radius", 600000.0)
+        # Convert to radians
+        phi1, phi2 = radians(lat1), radians(lat2)
+        dphi = radians(lat2 - lat1)
+        dlambda = radians(lon2 - lon1)
+        a = (sin(dphi / 2) ** 2) + cos(phi1) * cos(phi2) * (sin(dlambda / 2) ** 2)
+        c = 2 * atan2(sqrt(a), sqrt(max(0.0, 1 - a)))
+        distance = R * c
+        y = sin(dlambda) * cos(phi2)
+        x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dlambda)
+        bearing = (atan2(y, x) * 180.0 / 3.141592653589793 + 360.0) % 360.0
+        return distance, bearing
+    except Exception:
+        return None, None
+
+
+def list_waypoints(conn) -> List[Dict[str, Any]]:
+    sc = conn.space_center
+    v = sc.active_vessel
+    body = v.orbit.body
+    out: List[Dict[str, Any]] = []
+    try:
+        wpm = sc.waypoint_manager
+        wps = list(getattr(wpm, "waypoints", []) or [])
+    except Exception:
+        return out
+    # Vessel position
+    vlat = getattr(v.flight(), "latitude", None)
+    vlon = getattr(v.flight(), "longitude", None)
+    for w in wps:
+        try:
+            item = {
+                "name": getattr(w, "name", None),
+                "body": getattr(getattr(w, "body", None), "name", None),
+                "latitude_deg": getattr(w, "latitude", None),
+                "longitude_deg": getattr(w, "longitude", None),
+                "altitude_m": getattr(w, "altitude", None),
+            }
+            if vlat is not None and vlon is not None and item["latitude_deg"] is not None and item["longitude_deg"] is not None:
+                d, b = _gc_distance_and_bearing(body, vlat, vlon, item["latitude_deg"], item["longitude_deg"])
+                item["distance_m"] = d
+                item["bearing_deg"] = b
+            out.append(item)
+        except Exception:
+            continue
+    return out
+
+
+def action_groups_status(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    ctrl = v.control
+    out = {
+        "sas": getattr(ctrl, "sas", None),
+        "rcs": getattr(ctrl, "rcs", None),
+        "lights": getattr(ctrl, "lights", None),
+        "gear": getattr(ctrl, "gear", None),
+        "brakes": getattr(ctrl, "brakes", None),
+        "abort": getattr(ctrl, "abort", None),
+    }
+    # Custom groups 1..10
+    try:
+        try:
+            import krpc  # type: ignore
+            AG = krpc.spacecenter.ActionGroup
+            for i in range(1, 11):
+                name = f"custom{i:02d}"
+                enum_val = getattr(AG, name, None)
+                if enum_val is None:
+                    out[f"custom_{i}"] = None
+                else:
+                    out[f"custom_{i}"] = bool(ctrl.get_action_group(enum_val))
+        except Exception:
+            # Fallback: try integer indexing where supported
+            for i in range(1, 11):
+                try:
+                    out[f"custom_{i}"] = bool(ctrl.get_action_group(i))
+                except Exception:
+                    out[f"custom_{i}"] = None
+    except Exception:
+        pass
+    return out
+
+
+def _vector_angle_deg(a, b) -> float | None:
+    try:
+        ax, ay, az = a
+        bx, by, bz = b
+        dot = ax * bx + ay * by + az * bz
+        na = sqrt(ax * ax + ay * ay + az * az)
+        nb = sqrt(bx * bx + by * by + bz * bz)
+        if na == 0 or nb == 0:
+            return None
+        c = max(-1.0, min(1.0, dot / (na * nb)))
+        from math import acos
+        return acos(c) * 180.0 / 3.141592653589793
+    except Exception:
+        return None
+
+
+def _phase_angle_deg(p1, p2) -> float | None:
+    """Return the polar angle difference between two position vectors in a plane.
+    Uses atan2 on the x-y projection; suitable for coarse phase planning.
+    """
+    try:
+        x1, y1 = float(p1[0]), float(p1[1])
+        x2, y2 = float(p2[0]), float(p2[1])
+        a1 = atan2(y1, x1)
+        a2 = atan2(y2, x2)
+        d = (a2 - a1) * 180.0 / 3.141592653589793
+        # Normalize to [-180, 180]
+        while d > 180:
+            d -= 360
+        while d < -180:
+            d += 360
+        return d
+    except Exception:
+        return None
+
+
+def _normalize(v):
+    try:
+        nx = float(v[0]); ny = float(v[1]); nz = float(v[2])
+        n = sqrt(nx*nx + ny*ny + nz*nz)
+        if n == 0:
+            return None
+        return [nx/n, ny/n, nz/n]
+    except Exception:
+        return None
+
+
+def _find_next_nodes(orbit, ref, plane_normal, ut0, period):
+    """
+    Find next ascending/descending node times where position crosses the plane
+    with normal 'plane_normal'. Uses sampling+bisection over one period.
+    Returns (an_ut, dn_ut) or None values.
+    """
+    n_hat = _normalize(plane_normal)
+    if n_hat is None or period is None or period <= 0:
+        return None, None
+    N = 120
+    dt = max(period / N, 0.5)
+    last_s = None
+    last_ut = None
+    nodes = []
+    t = ut0
+    for _ in range(N+1):
+        try:
+            r = orbit.position_at(t, ref)
+        except Exception:
+            break
+        s = r[0]*n_hat[0] + r[1]*n_hat[1] + r[2]*n_hat[2]
+        ut_node = None
+        if last_s is not None and s == 0:
+            ut_node = t
+        elif last_s is not None and last_s * s < 0:
+            a = last_ut; b = t
+            fa = last_s; fb = s
+            for __ in range(20):
+                m = 0.5*(a+b)
+                try:
+                    rm = orbit.position_at(m, ref)
+                except Exception:
+                    break
+                fm = rm[0]*n_hat[0] + rm[1]*n_hat[1] + rm[2]*n_hat[2]
+                if fm == 0:
+                    a = b = m
+                    break
+                if fa * fm <= 0:
+                    b = m; fb = fm
+                else:
+                    a = m; fa = fm
+            ut_node = 0.5*(a+b)
+        if ut_node is not None:
+            sign = 0.0
+            try:
+                vel = orbit.velocity_at(ut_node, ref)
+                sign = vel[0]*n_hat[0] + vel[1]*n_hat[1] + vel[2]*n_hat[2]
+            except Exception:
+                pass
+            nodes.append((ut_node, 'AN' if sign > 0 else 'DN'))
+            if len(nodes) >= 2:
+                break
+        last_s = s; last_ut = t
+        t += dt
+    an_ut = next((ut for ut, kind in nodes if kind == 'AN'), None)
+    dn_ut = next((ut for ut, kind in nodes if kind == 'DN'), None)
+    return an_ut, dn_ut
+
+
+def navigation_info(conn) -> Dict[str, Any]:
+    """
+    Provide coarse navigation info to a body or vessel target.
+
+    For target body:
+      - phase_angle_deg around common parent (if available)
+      - target orbital elements (sma, period, inclination, LAN)
+    For target vessel:
+      - distance, relative_speed
+      - relative_inclination_deg (angle between orbital planes)
+      - phase_angle_deg around central body (if both orbit same)
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    out: Dict[str, Any] = {"target_type": None}
+
+    # Try vessel target first
+    try:
+        tv = v.target_vessel
+        if tv is not None:
+            out["target_type"] = "vessel"
+            out["name"] = tv.name
+            cb = v.orbit.body
+            ref = getattr(cb, "non_rotating_reference_frame", cb.reference_frame)
+            try:
+                vp = v.position(ref)
+                vv = v.velocity(ref)
+                tp = tv.position(ref)
+                tvv = tv.velocity(ref)
+                dp = [tp[i] - vp[i] for i in range(3)]
+                dv = [tvv[i] - vv[i] for i in range(3)]
+                out["distance_m"] = sqrt(dp[0] ** 2 + dp[1] ** 2 + dp[2] ** 2)
+                out["relative_speed_m_s"] = sqrt(dv[0] ** 2 + dv[1] ** 2 + dv[2] ** 2)
+            except Exception:
+                pass
+            # Relative inclination via orbit normals (if both orbit the same central body)
+            try:
+                ref_parent = getattr(cb, "non_rotating_reference_frame", cb.reference_frame)
+                # Current normal
+                r1 = v.position(ref_parent)
+                w1 = v.velocity(ref_parent)
+                h1 = [
+                    r1[1] * w1[2] - r1[2] * w1[1],
+                    r1[2] * w1[0] - r1[0] * w1[2],
+                    r1[0] * w1[1] - r1[1] * w1[0],
+                ]
+                # Target normal
+                r2 = tv.position(ref_parent)
+                w2 = tv.velocity(ref_parent)
+                h2 = [
+                    r2[1] * w2[2] - r2[2] * w2[1],
+                    r2[2] * w2[0] - r2[0] * w2[2],
+                    r2[0] * w2[1] - r2[1] * w2[0],
+                ]
+                out["relative_inclination_deg"] = _vector_angle_deg(h1, h2)
+                out["phase_angle_deg"] = _phase_angle_deg(r1, r2)
+                # Next AN/DN estimates
+                ut0 = sc.ut
+                period = getattr(v.orbit, 'period', None)
+                an_ut, dn_ut = _find_next_nodes(v.orbit, ref_parent, h2, ut0, period)
+                if an_ut:
+                    out["next_an_ut"] = an_ut
+                    out["time_to_an_s"] = an_ut - ut0
+                if dn_ut:
+                    out["next_dn_ut"] = dn_ut
+                    out["time_to_dn_s"] = dn_ut - ut0
+            except Exception:
+                pass
+            return out
+    except Exception:
+        pass
+
+    # Try body target
+    # Fallback: SpaceCenter-level target vessel
+    try:
+        tv2 = getattr(sc, "target_vessel", None)
+        if tv2 is not None:
+            tv = tv2
+            out["target_type"] = "vessel"
+            out["name"] = tv.name
+            cb = v.orbit.body
+            ref = getattr(cb, "non_rotating_reference_frame", cb.reference_frame)
+            try:
+                vp = v.position(ref)
+                vv = v.velocity(ref)
+                tp = tv.position(ref)
+                tvv = tv.velocity(ref)
+                dp = [tp[i] - vp[i] for i in range(3)]
+                dv = [tvv[i] - vv[i] for i in range(3)]
+                out["distance_m"] = sqrt(dp[0] ** 2 + dp[1] ** 2 + dp[2] ** 2)
+                out["relative_speed_m_s"] = sqrt(dv[0] ** 2 + dv[1] ** 2 + dv[2] ** 2)
+            except Exception:
+                pass
+            try:
+                ref_parent = getattr(cb, "non_rotating_reference_frame", cb.reference_frame)
+                r1 = v.position(ref_parent); w1 = v.velocity(ref_parent)
+                h1 = [r1[1]*w1[2]-r1[2]*w1[1], r1[2]*w1[0]-r1[0]*w1[2], r1[0]*w1[1]-r1[1]*w1[0]]
+                r2 = tv.position(ref_parent); w2 = tv.velocity(ref_parent)
+                h2 = [r2[1]*w2[2]-r2[2]*w2[1], r2[2]*w2[0]-r2[0]*w2[2], r2[0]*w2[1]-r2[1]*w2[0]]
+                out["relative_inclination_deg"] = _vector_angle_deg(h1, h2)
+                out["phase_angle_deg"] = _phase_angle_deg(r1, r2)
+            except Exception:
+                pass
+            return out
+    except Exception:
+        pass
+
+    try:
+        tb = v.target_body
+        if tb is not None:
+            out["target_type"] = "body"
+            out["name"] = tb.name
+            vb = v.orbit.body
+            parent_v = getattr(getattr(vb, "orbit", None), "reference_body", None)
+            parent_t = getattr(getattr(tb, "orbit", None), "reference_body", None)
+
+            # Case 1: target is a moon of the vessel's body (e.g., Mun while orbiting Kerbin)
+            try:
+                if parent_t is not None and parent_t == vb:
+                    ref = getattr(vb, "non_rotating_reference_frame", vb.reference_frame)
+                    p_v = v.position(ref)
+                    p_t = tb.position(ref)
+                    out["phase_angle_deg"] = _phase_angle_deg(p_v, p_t)
+                    # h2: target body's orbit plane normal around vb
+                    vt = tb.velocity(ref); rt = tb.position(ref)
+                    h2 = [rt[1]*vt[2]-rt[2]*vt[1], rt[2]*vt[0]-rt[0]*vt[2], rt[0]*vt[1]-rt[1]*vt[0]]
+                    ut0 = sc.ut
+                    period = getattr(v.orbit, 'period', None)
+                    an_ut, dn_ut = _find_next_nodes(v.orbit, ref, h2, ut0, period)
+                    if an_ut:
+                        out["next_an_ut"] = an_ut
+                        out["time_to_an_s"] = an_ut - ut0
+                    if dn_ut:
+                        out["next_dn_ut"] = dn_ut
+                        out["time_to_dn_s"] = dn_ut - ut0
+            except Exception:
+                pass
+
+            # Case 2: both bodies share a common parent (e.g., interplanetary transfers)
+            try:
+                if parent_v is not None and parent_v == parent_t:
+                    ref = getattr(parent_v, "non_rotating_reference_frame", parent_v.reference_frame)
+                    p_vb = vb.position(ref)
+                    p_tb = tb.position(ref)
+                    out.setdefault("phase_angle_deg", _phase_angle_deg(p_vb, p_tb))
+                    # Use target body's orbital plane around common parent
+                    vt = tb.velocity(ref); rt = tb.position(ref)
+                    h2 = [rt[1]*vt[2]-rt[2]*vt[1], rt[2]*vt[0]-rt[0]*vt[2], rt[0]*vt[1]-rt[1]*vt[0]]
+                    ut0 = sc.ut
+                    period = getattr(v.orbit, 'period', None)
+                    an_ut, dn_ut = _find_next_nodes(v.orbit, ref, h2, ut0, period)
+                    if an_ut:
+                        out["next_an_ut"] = an_ut
+                        out["time_to_an_s"] = an_ut - ut0
+                    if dn_ut:
+                        out["next_dn_ut"] = dn_ut
+                        out["time_to_dn_s"] = dn_ut - ut0
+            except Exception:
+                pass
+
+            # Basic orbital elements of target
+            try:
+                o = tb.orbit
+                out["target_sma_m"] = getattr(o, "semi_major_axis", None)
+                out["target_period_s"] = getattr(o, "period", None)
+                out["target_inclination_deg"] = getattr(o, "inclination", None)
+                out["target_lan_deg"] = getattr(o, "longitude_of_ascending_node", None)
+            except Exception:
+                pass
+            return out
+    except Exception:
+        pass
+
+    # Fallback: SpaceCenter-level target body
+    try:
+        tb2 = getattr(sc, "target_body", None)
+        if tb2 is not None:
+            out["target_type"] = "body"
+            out["name"] = tb2.name
+            vb = v.orbit.body
+            parent_v = getattr(getattr(vb, "orbit", None), "reference_body", None)
+            parent_t = getattr(getattr(tb2, "orbit", None), "reference_body", None)
+
+            # Moon-of-vessel-body case
+            try:
+                if parent_t is not None and parent_t == vb:
+                    ref = getattr(vb, "non_rotating_reference_frame", vb.reference_frame)
+                    p_v = v.position(ref)
+                    p_t = tb2.position(ref)
+                    out["phase_angle_deg"] = _phase_angle_deg(p_v, p_t)
+                    vt = tb2.velocity(ref); rt = tb2.position(ref)
+                    h2 = [rt[1]*vt[2]-rt[2]*vt[1], rt[2]*vt[0]-rt[0]*vt[2], rt[0]*vt[1]-rt[1]*vt[0]]
+                    ut0 = sc.ut
+                    period = getattr(v.orbit, 'period', None)
+                    an_ut, dn_ut = _find_next_nodes(v.orbit, ref, h2, ut0, period)
+                    if an_ut:
+                        out["next_an_ut"] = an_ut
+                        out["time_to_an_s"] = an_ut - ut0
+                    if dn_ut:
+                        out["next_dn_ut"] = dn_ut
+                        out["time_to_dn_s"] = dn_ut - ut0
+            except Exception:
+                pass
+
+            # Common parent case
+            try:
+                if parent_v is not None and parent_v == parent_t:
+                    ref = getattr(parent_v, "non_rotating_reference_frame", parent_v.reference_frame)
+                    p_vb = vb.position(ref)
+                    p_tb = tb2.position(ref)
+                    out.setdefault("phase_angle_deg", _phase_angle_deg(p_vb, p_tb))
+                    vt = tb2.velocity(ref); rt = tb2.position(ref)
+                    h2 = [rt[1]*vt[2]-rt[2]*vt[1], rt[2]*vt[0]-rt[0]*vt[2], rt[0]*vt[1]-rt[1]*vt[0]]
+                    ut0 = sc.ut
+                    period = getattr(v.orbit, 'period', None)
+                    an_ut, dn_ut = _find_next_nodes(v.orbit, ref, h2, ut0, period)
+                    if an_ut:
+                        out["next_an_ut"] = an_ut
+                        out["time_to_an_s"] = an_ut - ut0
+                    if dn_ut:
+                        out["next_dn_ut"] = dn_ut
+                        out["time_to_dn_s"] = dn_ut - ut0
+            except Exception:
+                pass
+
+            try:
+                o = tb2.orbit
+                out["target_sma_m"] = getattr(o, "semi_major_axis", None)
+                out["target_period_s"] = getattr(o, "period", None)
+                out["target_inclination_deg"] = getattr(o, "inclination", None)
+                out["target_lan_deg"] = getattr(o, "longitude_of_ascending_node", None)
+            except Exception:
+                pass
+            return out
+    except Exception:
+        pass
+
+    out["target_type"] = None
+    return out
+
+
+def list_bodies(conn) -> List[Dict[str, Any]]:
+    sc = conn.space_center
+    out: List[Dict[str, Any]] = []
+    try:
+        bodies = getattr(sc, "bodies", {}) or {}
+        for name, b in bodies.items():
+            item = {
+                "name": name,
+                "parent": getattr(getattr(getattr(b, "orbit", None), "reference_body", None), "name", None),
+                "has_atmosphere": bool(getattr(b, "atmosphere", getattr(b, "has_atmosphere", False))),
+                "radius_m": getattr(b, "equatorial_radius", None),
+                "soi_radius_m": getattr(b, "sphere_of_influence", None),
+            }
+            out.append(item)
+    except Exception:
+        pass
+    return out
+
+
+def list_vessels(conn) -> List[Dict[str, Any]]:
+    sc = conn.space_center
+    v = sc.active_vessel
+    out: List[Dict[str, Any]] = []
+    cb = None
+    ref = None
+    vp = None
+    try:
+        cb = v.orbit.body
+        ref = getattr(cb, "non_rotating_reference_frame", cb.reference_frame)
+        vp = v.position(ref)
+    except Exception:
+        ref = None
+        vp = None
+    try:
+        for ov in sc.vessels:
+            item = {
+                "name": ov.name,
+                "type": _enum_name(getattr(ov, "type", None)),
+                "situation": _enum_name(getattr(ov, "situation", None)),
+            }
+            if ref is not None and vp is not None:
+                try:
+                    tp = ov.position(ref)
+                    dp = [tp[i] - vp[i] for i in range(3)]
+                    item["distance_m"] = sqrt(dp[0] ** 2 + dp[1] ** 2 + dp[2] ** 2)
+                except Exception:
+                    pass
+            if ov.id == v.id:
+                item["self"] = True
+                item.setdefault("distance_m", 0.0)
+            out.append(item)
+    except Exception:
+        pass
+    # Sort by distance if available
+    try:
+        out.sort(key=lambda x: (x.get("distance_m") is None, x.get("distance_m", 0)))
+    except Exception:
+        pass
+    return out
+
+
+# --- Hard: Staging with per-stage Δv (approximate) ---
+RESOURCE_DENSITY_KG_PER_UNIT = {
+    "LiquidFuel": 5.0,
+    "Oxidizer": 5.0,
+    "MonoPropellant": 4.0,
+    "SolidFuel": 7.5,
+    "XenonGas": 0.1,
+    "Ore": 10.0,
+    "ElectricCharge": 0.0,
+}
+
+
+def _stage_prop_mass_kg(conn, stage: int) -> float:
+    v = conn.space_center.active_vessel
+    mass = 0.0
+    try:
+        res = v.resources_in_decouple_stage(stage, False)
+        names = list(getattr(res, "names", []) or [])
+        for n in names:
+            amt = 0.0
+            try:
+                amt = float(res.amount(n))
+            except Exception:
+                continue
+            dens = RESOURCE_DENSITY_KG_PER_UNIT.get(n, 0.0)
+            mass += amt * dens
+    except Exception:
+        pass
+    return mass
+
+
+def _stage_dry_drop_mass_kg(conn, stage: int) -> float:
+    v = conn.space_center.active_vessel
+    total = 0.0
+    try:
+        for p in v.parts.all:
+            try:
+                if getattr(p, "decouple_stage", None) == stage:
+                    dm = getattr(p, "dry_mass", None)
+                    if dm is None:
+                        dm = getattr(p, "mass", 0.0)
+                    total += float(dm)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return total
+
+
+def _combined_isp_and_thrust_for_stage(conn, stage: int):
+    v = conn.space_center.active_vessel
+    engines = []
+    try:
+        engines = [e for e in v.parts.engines if getattr(e.part, "stage", None) == stage]
+    except Exception:
+        pass
+    total_thrust = 0.0
+    denom = 0.0
+    count = 0
+    for e in engines:
+        try:
+            th = float(getattr(e, "max_thrust", 0.0) or 0.0)
+            isp = float(getattr(e, "specific_impulse", 0.0) or 0.0)
+            if th > 0 and isp > 0:
+                total_thrust += th
+                denom += th / isp
+                count += 1
+        except Exception:
+            continue
+    combined_isp = (total_thrust / denom) if denom > 0 else None
+    return combined_isp, total_thrust, count
+
+
+def staging_info(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    body = v.orbit.body
+    current_stage = getattr(v.control, "current_stage", 0)
+    stages = []
+    mass_current = float(getattr(v, "mass", 0.0) or 0.0)
+    # Iterate stages from current down to 0
+    for s in range(current_stage, -1, -1):
+        prop_mass = _stage_prop_mass_kg(conn, s)
+        m0 = mass_current
+        m1 = max(0.1, m0 - prop_mass)  # avoid zero
+        isp, thrust, eng_count = _combined_isp_and_thrust_for_stage(conn, s)
+        dv = None
+        if isp and isp > 0 and m0 > m1:
+            from math import log
+            dv = G0 * isp * log(m0 / m1)
+        twr = None
+        try:
+            g = float(getattr(body, "surface_gravity", 9.81) or 9.81)
+            if thrust and g > 0 and m0 > 0:
+                twr = thrust / (m0 * g)
+        except Exception:
+            pass
+        stages.append({
+            "stage": s,
+            "engines": eng_count,
+            "max_thrust_n": thrust,
+            "combined_isp_s": isp,
+            "delta_v_m_s": dv,
+            "twr_surface": twr,
+            "prop_mass_kg": prop_mass,
+            "m0_kg": m0,
+            "m1_kg": m1,
+        })
+        # Update mass for next stage iteration: drop stage dry mass
+        drop = _stage_dry_drop_mass_kg(conn, s)
+        mass_current = max(0.1, m1 - drop)
+    return {"current_stage": current_stage, "stages": stages}
+
+
+def power_status(conn) -> Dict[str, Any]:
+    v = conn.space_center.active_vessel
+    out: Dict[str, Any] = {"ec": {}, "generators": {}, "consumers": {}, "notes": []}
+    # ElectricCharge totals
+    try:
+        res = v.resources
+        out["ec"] = {
+            "current": res.amount("ElectricCharge"),
+            "max": res.max("ElectricCharge"),
+        }
+    except Exception:
+        out["ec"] = {"current": None, "max": None}
+
+    # Solar panels
+    solar = {"count": 0, "extended": 0, "sun_exposure_avg": None, "est_output": None}
+    flows = []
+    exposures = []
+    try:
+        panels = list(getattr(v.parts, "solar_panels", []) or [])
+        solar["count"] = len(panels)
+        for p in panels:
+            try:
+                if getattr(p, "deployable", False) and getattr(p, "deployed", False):
+                    solar["extended"] += 1
+            except Exception:
+                pass
+            for attr in ("sun_exposure", "exposure"):
+                try:
+                    val = getattr(p, attr)
+                    if val is not None:
+                        exposures.append(float(val))
+                        break
+                except Exception:
+                    continue
+            for attr in ("flow", "energy_flow", "current_flow"):
+                try:
+                    val = getattr(p, attr)
+                    if val is not None:
+                        flows.append(float(val))
+                        break
+                except Exception:
+                    continue
+        if exposures:
+            solar["sun_exposure_avg"] = sum(exposures) / len(exposures)
+        if flows:
+            solar["est_output"] = sum(flows)
+    except Exception:
+        pass
+    out["generators"]["solar"] = solar
+
+    # RTGs (best-effort: look for parts with 'RTG' in title or ModuleGenerator)
+    rtg = {"count": 0}
+    try:
+        for p in getattr(v.parts, "all", []) or []:
+            title = None
+            try:
+                title = p.title or ""
+            except Exception:
+                title = ""
+            if title and "RTG" in title:
+                rtg["count"] += 1
+                continue
+            try:
+                for m in p.modules:
+                    if getattr(m, "name", "").lower() in ("modulegenerator", "rtg"):
+                        rtg["count"] += 1
+                        break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    out["generators"]["rtg"] = rtg
+
+    # Fuel cells (ModuleResourceConverter with name containing 'Fuel Cell')
+    fuel = {"count": 0, "running": 0}
+    try:
+        for p in getattr(v.parts, "all", []) or []:
+            try:
+                for m in p.modules:
+                    name = getattr(m, "name", "").lower()
+                    if "fuelcell" in name or name == "moduleresourceconverter":
+                        fuel["count"] += 1
+                        try:
+                            if getattr(m, "active", False):
+                                fuel["running"] += 1
+                        except Exception:
+                            pass
+                        break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    out["generators"]["fuel_cells"] = fuel
+
+    # Reaction wheels
+    wheels = {"count": 0, "enabled": 0}
+    try:
+        rws = list(getattr(v.parts, "reaction_wheels", []) or [])
+        wheels["count"] = len(rws)
+        for rw in rws:
+            try:
+                if getattr(rw, "enabled", False):
+                    wheels["enabled"] += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    out["consumers"]["reaction_wheels"] = wheels
+
+    # Antennae
+    ants = {"count": 0}
+    try:
+        ants["count"] = len(list(getattr(v.parts, "antennas", []) or []))
+    except Exception:
+        pass
+    out["consumers"]["antennas"] = ants
+
+    # Lights
+    lights = {"count": 0, "on": 0}
+    try:
+        ls = list(getattr(v.parts, "lights", []) or [])
+        lights["count"] = len(ls)
+        for l in ls:
+            try:
+                if getattr(l, "active", False) or getattr(l, "on", False):
+                    lights["on"] += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    out["consumers"]["lights"] = lights
+
+    # Note on estimation
+    if out["generators"].get("solar", {}).get("est_output") is None:
+        out["notes"].append("Solar output estimation not available on this client; reporting counts and exposure only.")
+    return out
+
+
+def _engine_isp(e, env: str) -> float | None:
+    try:
+        if env == "vacuum":
+            for attr in ("vacuum_specific_impulse", "isp_vacuum", "vacuum_isp"):
+                v = getattr(e, attr, None)
+                if v:
+                    return float(v)
+        elif env == "sea_level":
+            for attr in ("sea_level_specific_impulse", "isp_sea_level", "sea_level_isp"):
+                v = getattr(e, attr, None)
+                if v:
+                    return float(v)
+        # Fallback to current environment
+        v = getattr(e, "specific_impulse", None)
+        if v:
+            return float(v)
+    except Exception:
+        return None
+    return None
+
+
+def stage_plan_approx(conn, environment: str = "current") -> Dict[str, Any]:
+    """
+    Approximate KSP's stage DV display:
+    - Split burn into subsegments labeled by stage boundaries.
+    - For each engine ignition stage, iterate down through subsequent decouple stages.
+      For subsegment labeled Y, use only propellant in stage Y-1, then decouple dry mass at Y.
+    - Update engine set when engines are decoupled at Y.
+    This yields small DV portions at early strap-on drops and a large DV portion for the
+    core stage, matching stock staging intuition.
+    """
+    v = conn.space_center.active_vessel
+    body = v.orbit.body
+    g = float(getattr(body, "surface_gravity", 9.81) or 9.81)
+
+    # Precompute per-stage propellant and dry mass drop
+    current_stage = getattr(v.control, "current_stage", 0)
+    # Determine min/max stage indices to consider
+    min_stage = 0
+    max_stage = 0
+    try:
+        max_stage = max([current_stage] + [getattr(getattr(e, "part", None), "stage", 0) for e in v.parts.engines])
+    except Exception:
+        max_stage = current_stage
+    prop_by_stage = {s: _stage_prop_mass_kg(conn, s) for s in range(max_stage, min_stage - 1, -1)}
+    drop_by_stage = {s: _stage_dry_drop_mass_kg(conn, s) for s in range(max_stage, min_stage - 1, -1)}
+
+    # Build ignition stages and engine membership
+    engines_all = []
+    try:
+        engines_all = list(v.parts.engines)
+    except Exception:
+        engines_all = []
+    def engine_ignition_stage(e):
+        try:
+            return int(getattr(getattr(e, "part", None), "stage", 0))
+        except Exception:
+            return 0
+    def engine_decouple_stage(e):
+        try:
+            return int(getattr(getattr(e, "part", None), "decouple_stage", -1))
+        except Exception:
+            return -1
+
+    ignition_stages = sorted({engine_ignition_stage(e) for e in engines_all}, reverse=True)
+    if not ignition_stages:
+        return {"stages": []}
+
+    # Helper: combined Isp/thrust for a set of engines
+    def combined_isp_thrust(active_eng):
+        total_thrust = 0.0
+        denom = 0.0
+        count = 0
+        for e in active_eng:
+            try:
+                th = float(getattr(e, "max_thrust", 0.0) or 0.0)
+                if environment == "current":
+                    isp = float(getattr(e, "specific_impulse", 0.0) or 0.0)
+                elif environment in ("vacuum", "sea_level"):
+                    isp = _engine_isp(e, environment) or float(getattr(e, "specific_impulse", 0.0) or 0.0)
+                else:
+                    isp = float(getattr(e, "specific_impulse", 0.0) or 0.0)
+                if th > 0 and isp > 0:
+                    total_thrust += th
+                    denom += th / isp
+                    count += 1
+            except Exception:
+                continue
+        isp = (total_thrust / denom) if denom > 0 else None
+        return isp, total_thrust, count
+
+    mass_current = float(getattr(v, "mass", 0.0) or 0.0)
+    plan = []
+
+    for idx, s in enumerate(ignition_stages):
+        # Active engines: those ignited at stage s and not yet decoupled
+        active_eng = [e for e in engines_all if engine_ignition_stage(e) == s]
+
+        # Subsegments run from label y = s down to just above next ignition stage
+        s_next = ignition_stages[idx + 1] if idx + 1 < len(ignition_stages) else -1
+        y = s
+        while y > s_next:
+            # DV labeled at stage y comes from prop in stage y-1 (fuel burned before staging y)
+            prop = prop_by_stage.get(y - 1, 0.0)
+            isp, thrust, count = combined_isp_thrust(active_eng)
+            dv = None
+            twr = None
+            if thrust and g > 0 and mass_current > 0:
+                twr = thrust / (mass_current * g)
+            if isp and isp > 0 and prop > 0 and mass_current > prop:
+                from math import log
+                dv = G0 * isp * log(mass_current / (mass_current - prop))
+
+            plan.append({
+                "stage": y,
+                "engines": int(count or 0),
+                "max_thrust_n": thrust,
+                "combined_isp_s": isp,
+                "prop_mass_kg": prop,
+                "m0_kg": mass_current,
+                "m1_kg": max(0.1, mass_current - prop),
+                "delta_v_m_s": dv,
+                "twr_surface": twr,
+            })
+
+            # Burn prop
+            mass_current = max(0.1, mass_current - prop)
+            # Stage y: decouple any engines/parts
+            # Remove engines whose decouple_stage == y
+            try:
+                active_eng = [e for e in active_eng if engine_decouple_stage(e) != y]
+            except Exception:
+                pass
+            # Drop dry mass
+            mass_current = max(0.1, mass_current - drop_by_stage.get(y, 0.0))
+            y -= 1
+
+    return {"stages": plan}
+
+
+# --- Maneuver node planners (Batch 1) ---
+
+def compute_burn_time(conn, dv_m_s: float, environment: str = "current") -> Dict[str, float | None]:
+    v = conn.space_center.active_vessel
+    # Combined thrust/Isp over currently ignitable engines (current stage)
+    engines = []
+    try:
+        cs = getattr(v.control, "current_stage", None)
+        engines = [e for e in v.parts.engines if getattr(getattr(e, 'part', None), 'stage', None) == cs]
+        if not engines:
+            engines = list(v.parts.engines)
+    except Exception:
+        engines = []
+
+    def combined_isp_thrust(active_eng):
+        total_thrust = 0.0
+        denom = 0.0
+        count = 0
+        for e in active_eng:
+            try:
+                th = float(getattr(e, 'max_thrust', 0.0) or 0.0)
+                if environment == 'current':
+                    isp = float(getattr(e, 'specific_impulse', 0.0) or 0.0)
+                else:
+                    isp = _engine_isp(e, environment) or float(getattr(e, 'specific_impulse', 0.0) or 0.0)
+                if th > 0 and isp > 0:
+                    total_thrust += th
+                    denom += th / isp
+                    count += 1
+            except Exception:
+                continue
+        isp = (total_thrust / denom) if denom > 0 else None
+        return isp, total_thrust
+
+    isp, thrust = combined_isp_thrust(engines)
+    mass = float(getattr(v, 'mass', 0.0) or 0.0)
+    simple = simple_burn_time(mass, thrust, dv_m_s)
+    tsiolkovsky = tsiolkovsky_burn_time(mass, thrust, isp, dv_m_s)
+    return {"mass_kg": mass, "thrust_n": thrust, "isp_s": isp, "burn_time_simple_s": simple, "burn_time_tsiolkovsky_s": tsiolkovsky}
+
+
+def propose_circularize_node(conn, at: str = 'apoapsis') -> Dict[str, float | str | None]:
+    v = conn.space_center.active_vessel
+    o = v.orbit
+    b = o.body
+    mu = getattr(b, 'gravitational_parameter', None)
+    ut = conn.space_center.ut
+    if mu is None:
+        return {"error": "Missing gravitational_parameter"}
+    if at not in ('apoapsis', 'periapsis'):
+        at = 'apoapsis'
+    if at == 'apoapsis':
+        r = getattr(o, 'apoapsis_altitude', 0.0) + getattr(b, 'equatorial_radius', 0.0)
+        t = ut + getattr(o, 'time_to_apoapsis', 0.0)
+    else:
+        r = getattr(o, 'periapsis_altitude', 0.0) + getattr(b, 'equatorial_radius', 0.0)
+        t = ut + getattr(o, 'time_to_periapsis', 0.0)
+    a = getattr(o, 'semi_major_axis', None)
+    if not a or r <= 0:
+        return {"error": "Invalid orbit or radius"}
+    from math import sqrt
+    v_circ = sqrt(mu / r)
+    v_now = sqrt(mu * (2.0 / r - 1.0 / a))
+    dv = v_circ - v_now
+    return {"ut": t, "prograde": dv, "normal": 0.0, "radial": 0.0, "r_m": r, "v_now_m_s": v_now, "v_circ_m_s": v_circ}
+
+
+def propose_plane_change_nodes(conn) -> Dict[str, object]:
+    """Return suggested plane change burns at next AN and DN if a target is set.
+    Uses target orbit plane and estimates dv ≈ 2*v*sin(Δi/2). Provides UTs and normal magnitudes.
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    cb = v.orbit.body
+    ref = getattr(cb, 'non_rotating_reference_frame', cb.reference_frame)
+    # Try target vessel, then body
+    target = getattr(v, 'target_vessel', None) or getattr(sc, 'target_vessel', None)
+    if target is None:
+        target = getattr(v, 'target_body', None) or getattr(sc, 'target_body', None)
+    if target is None:
+        return {"error": "No target set"}
+    try:
+        # Target orbit plane normal
+        rt = target.position(ref); vt = target.velocity(ref)
+        h2 = [rt[1]*vt[2]-rt[2]*vt[1], rt[2]*vt[0]-rt[0]*vt[2], rt[0]*vt[1]-rt[1]*vt[0]]
+    except Exception:
+        return {"error": "Target orbit not available"}
+    ut0 = sc.ut
+    period = getattr(v.orbit, 'period', None)
+    an_ut, dn_ut = _find_next_nodes(v.orbit, ref, h2, ut0, period)
+    from math import sin
+    out = {}
+    for kind, t in (("AN", an_ut), ("DN", dn_ut)):
+        if t:
+            try:
+                r = v.orbit.position_at(t, ref)
+                rr = sqrt(r[0]**2 + r[1]**2 + r[2]**2)
+                mu = getattr(cb, 'gravitational_parameter', None)
+                a = getattr(v.orbit, 'semi_major_axis', None)
+                if mu and a:
+                    vv = sqrt(mu * (2.0/rr - 1.0/a))
+                    # relative inclination
+                    r1 = v.position(ref); w1 = v.velocity(ref)
+                    h1 = [r1[1]*w1[2]-r1[2]*w1[1], r1[2]*w1[0]-r1[0]*w1[2], r1[0]*w1[1]-r1[1]*w1[0]]
+                    di = _vector_angle_deg(h1, h2) or 0.0
+                    dv = 2.0 * vv * sin((di * 3.141592653589793/180.0)/2.0)
+                    out[kind] = {"ut": t, "normal": dv, "prograde": 0.0, "radial": 0.0, "relative_inclination_deg": di}
+            except Exception:
+                continue
+    if not out:
+        return {"error": "Could not compute AN/DN or dv"}
+    return out
+
+
+def propose_raise_lower_node(conn, kind: str, target_alt_m: float) -> Dict[str, float | str | None]:
+    """
+    Propose a single-burn node to raise/lower apoapsis or periapsis to target_alt_m.
+    - If kind == 'apoapsis': burn at periapsis to set new apoapsis radius.
+    - If kind == 'periapsis': burn at apoapsis to set new periapsis radius.
+    Returns: {ut, prograde, normal=0, radial=0, r_burn_m, r_target_m}
+    """
+    v = conn.space_center.active_vessel
+    o = v.orbit
+    b = o.body
+    mu = getattr(b, 'gravitational_parameter', None)
+    if mu is None:
+        return {"error": "Missing gravitational_parameter"}
+    R = getattr(b, 'equatorial_radius', 0.0) or 0.0
+    atmo_depth = getattr(b, 'atmosphere_depth', 0.0) or 0.0
+    # Current radii
+    r_pe = float(getattr(o, 'periapsis_altitude', 0.0) + R)
+    r_ap = float(getattr(o, 'apoapsis_altitude', 0.0) + R)
+    a_cur = float(getattr(o, 'semi_major_axis', (r_pe + r_ap) / 2.0))
+    ut = conn.space_center.ut
+
+    kind = (kind or 'apoapsis').lower()
+    if kind not in ('apoapsis', 'periapsis'):
+        kind = 'apoapsis'
+    r_target = float(target_alt_m) + R
+    # Clamp target above min safe altitude
+    min_r = R + max(0.0, atmo_depth)
+    if r_target < min_r:
+        r_target = min_r
+
+    from math import sqrt
+    if kind == 'apoapsis':
+        # Burn at periapsis to set new apoapsis = r_target
+        r_burn = r_pe
+        t_burn = ut + getattr(o, 'time_to_periapsis', 0.0)
+        a_trans = 0.5 * (r_burn + r_target)
+        v_now = sqrt(mu * (2.0 / r_burn - 1.0 / a_cur))
+        v_trans = sqrt(mu * (2.0 / r_burn - 1.0 / a_trans))
+        dv = v_trans - v_now
+    else:
+        # Burn at apoapsis to set new periapsis = r_target
+        r_burn = r_ap
+        t_burn = ut + getattr(o, 'time_to_apoapsis', 0.0)
+        a_trans = 0.5 * (r_burn + r_target)
+        v_now = sqrt(mu * (2.0 / r_burn - 1.0 / a_cur))
+        v_trans = sqrt(mu * (2.0 / r_burn - 1.0 / a_trans))
+        dv = v_trans - v_now
+
+    return {
+        "ut": t_burn,
+        "prograde": dv,
+        "normal": 0.0,
+        "radial": 0.0,
+        "r_burn_m": r_burn,
+        "r_target_m": r_target,
+    }
+
+
+def propose_rendezvous_phase_node(conn) -> Dict[str, object]:
+    """
+    Suggest a phasing orbit to meet the target vessel in the same SOI.
+    - Computes time to alignment T from current phase and mean motions
+    - Chooses integer m s.t. m * P_phase ≈ T, with P_phase near current period
+    - Proposes a single burn at periapsis to set semi-major axis for P_phase
+    Returns: {ut, prograde, normal=0, radial=0, P_phase_s, m, T_align_s, notes}
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    target = getattr(v, 'target_vessel', None) or getattr(sc, 'target_vessel', None)
+    if target is None:
+        return {"error": "No target vessel set"}
+    cb = v.orbit.body
+    # Ensure same central body
+    if getattr(getattr(target, 'orbit', None), 'body', None) is None or target.orbit.body.name != cb.name:
+        return {"error": "Target must orbit the same body"}
+    mu = getattr(cb, 'gravitational_parameter', None)
+    if mu is None:
+        return {"error": "Missing gravitational parameter"}
+    P1 = float(getattr(v.orbit, 'period', 0.0)) or None
+    P2 = float(getattr(target.orbit, 'period', 0.0)) or None
+    if not P1 or not P2:
+        return {"error": "Missing orbital periods"}
+    ref = getattr(cb, 'non_rotating_reference_frame', cb.reference_frame)
+    try:
+        r1 = v.position(ref)
+        r2 = target.position(ref)
+        phase_now_deg = _phase_angle_deg(r1, r2)
+    except Exception:
+        phase_now_deg = None
+    from math import pi, sqrt
+    n1 = 2.0 * pi / P1
+    n2 = 2.0 * pi / P2
+    dn = n1 - n2
+    if abs(dn) < 1e-6:
+        # Very similar periods; suggest small phasing (e.g., +5% period)
+        P_phase = P1 * 1.05
+        m = 1
+        T_align = P_phase
+    else:
+        # Solve (n1 - n2) T ≈ Δθ
+        dtheta = 0.0 if phase_now_deg is None else (phase_now_deg * pi / 180.0)
+        T0 = dtheta / dn
+        # Wrap to the next positive alignment within synodic period
+        Psyn = abs(2.0 * pi / dn)
+        T = T0 % Psyn
+        if T < 1e-3:
+            T = Psyn
+        # Choose m so that P_phase near P1
+        m = max(1, int(round(T / P1)))
+        if m < 1:
+            m = 1
+        P_phase = T / m
+        T_align = T
+    # Compute required semi-major axis for P_phase
+    a_phase = (mu * (P_phase / (2.0 * pi)) ** 2) ** (1.0 / 3.0)
+    # Burn at periapsis
+    R = getattr(cb, 'equatorial_radius', 0.0) or 0.0
+    r_pe = float(getattr(v.orbit, 'periapsis_altitude', 0.0) + R)
+    a_cur = float(getattr(v.orbit, 'semi_major_axis', 0.0) or 0.0)
+    if r_pe <= 0 or a_phase <= 0 or a_cur <= 0:
+        return {"error": "Invalid orbit parameters for phasing"}
+    v_now = sqrt(mu * (2.0 / r_pe - 1.0 / a_cur))
+    v_trans = sqrt(mu * (2.0 / r_pe - 1.0 / a_phase))
+    dv = v_trans - v_now
+    ut = sc.ut + float(getattr(v.orbit, 'time_to_periapsis', 0.0) or 0.0)
+    notes = "Burn retrograde if prograde is negative." if dv < 0 else "Burn prograde."
+    return {
+        "ut": ut,
+        "prograde": dv,
+        "normal": 0.0,
+        "radial": 0.0,
+        "P_phase_s": P_phase,
+        "m": m,
+        "T_align_s": T_align,
+        "phase_now_deg": phase_now_deg,
+        "notes": notes,
+    }
+
+
+def _wrap_deg(d: float) -> float:
+    while d > 180:
+        d -= 360
+    while d < -180:
+        d += 360
+    return d
+
+
+def _wrap_deg_pos(d: float) -> float:
+    d = d % 360
+    if d < 0:
+        d += 360
+    return d
+
+
+def propose_transfer_window_to_body(conn, target_body_name: str) -> Dict[str, object]:
+    """
+    Estimate a Hohmann transfer window to a target body.
+    Handles two cases:
+      - Moon transfer: target orbits the vessel's current body (parent is vessel body)
+      - Interplanetary: vessel body and target share a common parent (e.g., Sun)
+    Returns: phase_now, phase_required, phase_error, time_to_window_s, ut_window, transfer_time_s
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    vb = v.orbit.body
+    tb = sc.bodies.get(target_body_name)
+    if tb is None:
+        return {"error": f"Body '{target_body_name}' not found"}
+    # Determine parent frame
+    parent_v = getattr(getattr(vb, 'orbit', None), 'reference_body', None)
+    parent_t = getattr(getattr(tb, 'orbit', None), 'reference_body', None)
+    name_vb = getattr(vb, 'name', None)
+    name_parent_v = getattr(parent_v, 'name', None)
+    name_parent_t = getattr(parent_t, 'name', None)
+    ut0 = sc.ut
+    from math import sqrt, pi
+
+    result: Dict[str, object] = {"target": getattr(tb, 'name', target_body_name)}
+
+    # Moon transfer (target orbits vessel body)
+    # Moon transfer: target orbits vessel body (compare by name to avoid proxy identity issues)
+    if name_parent_t is not None and name_parent_t == name_vb:
+        ref = getattr(vb, 'non_rotating_reference_frame', vb.reference_frame)
+        try:
+            p_v = v.position(ref)
+            p_t = tb.position(ref)
+            phase_now = _phase_angle_deg(p_v, p_t)
+        except Exception:
+            phase_now = None
+        # Radii
+        mu = getattr(vb, 'gravitational_parameter', None)
+        if mu is None:
+            return {"error": "Missing gravitational parameter for vessel body"}
+        # r1: choose burn at periapsis of current orbit
+        R = getattr(vb, 'equatorial_radius', 0.0) or 0.0
+        r1 = float(getattr(v.orbit, 'periapsis_altitude', 0.0) + R)
+        r2 = float(getattr(tb.orbit, 'semi_major_axis', 0.0))  # approx circular
+        a_trans = 0.5 * (r1 + r2)
+        t_trans = pi * sqrt(a_trans**3 / mu)
+        P2 = getattr(tb.orbit, 'period', None)
+        P2 = float(P2) if P2 else None
+        phase_required = None
+        if P2:
+            phase_required = 180.0 - (360.0 * (t_trans / P2))
+        # Synodic period between current orbital angular rate and moon's
+        P1 = getattr(v.orbit, 'period', None)
+        P1 = float(P1) if P1 else None
+        time_to_window = None
+        if P1 and P2 and phase_now is not None and phase_required is not None:
+            Psyn = abs(1.0 / (1.0 / P1 - 1.0 / P2)) if abs(1.0 / P1 - 1.0 / P2) > 0 else None
+            if Psyn:
+                err = _wrap_deg(phase_required - phase_now)
+                time_to_window = (_wrap_deg_pos(err) / 360.0) * Psyn
+        result.update({
+            "frame": "moon",
+            "r1_m": r1,
+            "r2_m": r2,
+            "transfer_time_s": t_trans,
+            "phase_now_deg": phase_now,
+            "phase_required_deg": phase_required,
+            "phase_error_deg": _wrap_deg((phase_required - phase_now) if (phase_now is not None and phase_required is not None) else 0.0) if (phase_now is not None and phase_required is not None) else None,
+            "time_to_window_s": time_to_window,
+            "ut_window": (ut0 + time_to_window) if time_to_window else None,
+        })
+        return result
+
+    # Interplanetary (common parent)
+    # Interplanetary: common parent (compare by name)
+    if name_parent_v is not None and name_parent_v == name_parent_t:
+        ref = getattr(parent_v, 'non_rotating_reference_frame', parent_v.reference_frame)
+        try:
+            p_vb = vb.position(ref)
+            p_tb = tb.position(ref)
+            phase_now = _phase_angle_deg(p_vb, p_tb)
+        except Exception:
+            phase_now = None
+        mu = getattr(parent_v, 'gravitational_parameter', None)
+        if mu is None:
+            return {"error": "Missing gravitational parameter for common parent"}
+        # Radii: use semi-major axes (approx circular)
+        r1 = float(getattr(vb.orbit, 'semi_major_axis', 0.0))
+        r2 = float(getattr(tb.orbit, 'semi_major_axis', 0.0))
+        a_trans = 0.5 * (r1 + r2)
+        t_trans = pi * sqrt(a_trans**3 / mu)
+        P1 = float(getattr(vb.orbit, 'period', 0.0)) or None
+        P2 = float(getattr(tb.orbit, 'period', 0.0)) or None
+        if r1 <= 0 or r2 <= 0 or not P1 or not P2:
+            return {"error": "Invalid orbital parameters"}
+        if r1 < r2:
+            phase_required = 180.0 - (360.0 * (t_trans / P2))
+        else:
+            phase_required = 180.0 + (360.0 * (t_trans / P1))
+        Psyn = abs(1.0 / (1.0 / P1 - 1.0 / P2))
+        time_to_window = None
+        if phase_now is not None:
+            err = _wrap_deg(phase_required - phase_now)
+            time_to_window = (_wrap_deg_pos(err) / 360.0) * Psyn
+        result.update({
+            "frame": "interplanetary",
+            "r1_m": r1,
+            "r2_m": r2,
+            "transfer_time_s": t_trans,
+            "phase_now_deg": phase_now,
+            "phase_required_deg": phase_required,
+            "phase_error_deg": _wrap_deg((phase_required - phase_now) if phase_now is not None else 0.0) if phase_now is not None else None,
+            "time_to_window_s": time_to_window,
+            "ut_window": (ut0 + time_to_window) if time_to_window else None,
+        })
+        return result
+
+    # Fallbacks using star inference
+    try:
+        bodies = getattr(sc, 'bodies', {}) or {}
+        star = max(bodies.values(), key=lambda b: float(getattr(b, 'gravitational_parameter', 0.0) or 0.0))
+        name_star = getattr(star, 'name', None)
+    except Exception:
+        star = None; name_star = None
+
+    # If both effectively orbit the star (parents missing but likely star), treat as interplanetary
+    if name_star and ((name_parent_v in (None, name_star)) and (name_parent_t in (None, name_star))):
+        ref = getattr(star, 'non_rotating_reference_frame', getattr(star, 'reference_frame', None))
+        try:
+            p_vb = vb.position(ref)
+            p_tb = tb.position(ref)
+            phase_now = _phase_angle_deg(p_vb, p_tb)
+        except Exception:
+            phase_now = None
+        mu = getattr(star, 'gravitational_parameter', None)
+        if mu is None:
+            return {"error": "Missing gravitational parameter for star"}
+        from math import sqrt, pi
+        r1 = float(getattr(vb.orbit, 'semi_major_axis', 0.0))
+        r2 = float(getattr(tb.orbit, 'semi_major_axis', 0.0))
+        if r1 > 0 and r2 > 0:
+            a_trans = 0.5 * (r1 + r2)
+            t_trans = pi * sqrt(a_trans**3 / mu)
+            P1 = float(getattr(vb.orbit, 'period', 0.0)) or None
+            P2 = float(getattr(tb.orbit, 'period', 0.0)) or None
+            if P1 and P2:
+                if r1 < r2:
+                    phase_required = 180.0 - (360.0 * (t_trans / P2))
+                else:
+                    phase_required = 180.0 + (360.0 * (t_trans / P1))
+                Psyn = abs(1.0 / (1.0 / P1 - 1.0 / P2))
+                time_to_window = None
+                if phase_now is not None:
+                    err = _wrap_deg(phase_required - phase_now)
+                    time_to_window = (_wrap_deg_pos(err) / 360.0) * Psyn
+                return {
+                    "frame": "interplanetary",
+                    "r1_m": r1,
+                    "r2_m": r2,
+                    "transfer_time_s": t_trans,
+                    "phase_now_deg": phase_now,
+                    "phase_required_deg": phase_required,
+                    "phase_error_deg": _wrap_deg((phase_required - phase_now) if phase_now is not None else 0.0) if phase_now is not None else None,
+                    "time_to_window_s": time_to_window,
+                    "ut_window": (ut0 + time_to_window) if time_to_window else None,
+                }
+
+    # Heuristic moon-case fallback: if target SMA is much less than your body's SOI, treat as moon case
+    try:
+        mu = getattr(vb, 'gravitational_parameter', None)
+        r2 = float(getattr(tb.orbit, 'semi_major_axis', 0.0))
+        soi = float(getattr(vb, 'sphere_of_influence', 0.0))
+        if mu and r2 and soi and r2 < 0.8 * soi:
+            ref = getattr(vb, 'non_rotating_reference_frame', vb.reference_frame)
+            p_v = v.position(ref); p_t = tb.position(ref)
+            phase_now = _phase_angle_deg(p_v, p_t)
+            from math import sqrt, pi
+            R = getattr(vb, 'equatorial_radius', 0.0) or 0.0
+            r1 = float(getattr(v.orbit, 'periapsis_altitude', 0.0) + R)
+            a_trans = 0.5 * (r1 + r2)
+            t_trans = pi * sqrt(a_trans**3 / mu)
+            P2 = float(getattr(tb.orbit, 'period', 0.0)) or None
+            phase_required = 180.0 - (360.0 * (t_trans / P2)) if P2 else None
+            P1 = float(getattr(v.orbit, 'period', 0.0)) or None
+            time_to_window = None
+            if P1 and P2 and phase_now is not None and phase_required is not None:
+                Psyn = abs(1.0 / (1.0 / P1 - 1.0 / P2)) if abs(1.0 / P1 - 1.0 / P2) > 0 else None
+                if Psyn:
+                    err = _wrap_deg(phase_required - phase_now)
+                    time_to_window = (_wrap_deg_pos(err) / 360.0) * Psyn
+            return {
+                "frame": "moon",
+                "r1_m": r1,
+                "r2_m": r2,
+                "transfer_time_s": t_trans,
+                "phase_now_deg": phase_now,
+                "phase_required_deg": phase_required,
+                "phase_error_deg": _wrap_deg((phase_required - phase_now) if (phase_now is not None and phase_required is not None) else 0.0) if (phase_now is not None and phase_required is not None) else None,
+                "time_to_window_s": time_to_window,
+                "ut_window": (ut0 + time_to_window) if time_to_window else None,
+            }
+    except Exception:
+        pass
+
+    return {"error": "Target body must be a moon of the current body or share a parent with it"}
+
+
+def propose_ejection_node_to_body(conn, target_body_name: str, parking_alt_m: float, environment: str = 'current') -> Dict[str, object]:
+    """
+    Coarse ejection burn estimate for interplanetary transfers.
+    - Computes v_inf from Hohmann transfer at origin orbit and maps to parking orbit ejection dv.
+    - Returns a node at UT_window (from transfer_window), prograde-only suggestion.
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    vb = v.orbit.body
+    tb = sc.bodies.get(target_body_name)
+    if tb is None:
+        return {"error": f"Body '{target_body_name}' not found"}
+    parent_v = getattr(getattr(vb, 'orbit', None), 'reference_body', None)
+    parent_t = getattr(getattr(tb, 'orbit', None), 'reference_body', None)
+    name_parent_v = getattr(parent_v, 'name', None)
+    name_parent_t = getattr(parent_t, 'name', None)
+    if name_parent_v is None or name_parent_v != name_parent_t:
+        # Fallback: assume star common parent if both appear to orbit the star by largest mu
+        bodies = getattr(sc, 'bodies', {}) or {}
+        try:
+            star = max(bodies.values(), key=lambda b: float(getattr(b, 'gravitational_parameter', 0.0) or 0.0))
+            name_star = getattr(star, 'name', None)
+        except Exception:
+            star = None; name_star = None
+        if not name_star or (name_parent_v not in (None, name_star)) or (name_parent_t not in (None, name_star)):
+            return {"error": "Ejection node is only defined for interplanetary transfers (common parent)"}
+        # Use star as parent for frame and mu
+        parent_v = star
+    # Parent parameters
+    mu_p = getattr(parent_v, 'gravitational_parameter', None)
+    if mu_p is None:
+        return {"error": "Missing gravitational parameter for common parent"}
+    from math import sqrt, pi
+    r1 = float(getattr(vb.orbit, 'semi_major_axis', 0.0))
+    r2 = float(getattr(tb.orbit, 'semi_major_axis', 0.0))
+    a_trans = 0.5 * (r1 + r2)
+    t_trans = pi * sqrt(a_trans**3 / mu_p)
+    P1 = float(getattr(vb.orbit, 'period', 0.0)) or None
+    P2 = float(getattr(tb.orbit, 'period', 0.0)) or None
+    if r1 <= 0 or r2 <= 0 or not P1 or not P2:
+        return {"error": "Invalid orbital parameters"}
+    if r1 < r2:
+        phase_required = 180.0 - (360.0 * (t_trans / P2))
+    else:
+        phase_required = 180.0 + (360.0 * (t_trans / P1))
+    # Current phase
+    ref = getattr(parent_v, 'non_rotating_reference_frame', parent_v.reference_frame)
+    try:
+        p_vb = vb.position(ref)
+        p_tb = tb.position(ref)
+        phase_now = _phase_angle_deg(p_vb, p_tb)
+    except Exception:
+        phase_now = None
+    Psyn = abs(1.0 / (1.0 / P1 - 1.0 / P2))
+    time_to_window = None
+    if phase_now is not None:
+        err = _wrap_deg(phase_required - phase_now)
+        time_to_window = (_wrap_deg_pos(err) / 360.0) * Psyn
+    ut_window = (sc.ut + time_to_window) if time_to_window else None
+    # v_inf at departure
+    v1 = sqrt(mu_p / r1)
+    v_trans1 = sqrt(mu_p * (2.0 / r1 - 1.0 / a_trans))
+    v_inf = abs(v_trans1 - v1)
+    # Map v_inf to parking orbit ejection dv
+    mu_b = getattr(vb, 'gravitational_parameter', None)
+    Rb = getattr(vb, 'equatorial_radius', 0.0) or 0.0
+    r_orbit = Rb + float(parking_alt_m)
+    v_circ = sqrt(mu_b / r_orbit)
+    v_esc = sqrt(2.0 * mu_b / r_orbit)
+    dv_eject = sqrt(v_inf * v_inf + v_esc * v_esc) - v_circ
+    return {
+        "ut": ut_window,
+        "prograde": dv_eject,
+        "normal": 0.0,
+        "radial": 0.0,
+        "phase_now_deg": phase_now,
+        "phase_required_deg": phase_required,
+        "time_to_window_s": time_to_window,
+        "v_inf_m_s": v_inf,
+        "parking_alt_m": parking_alt_m,
+        "notes": "Coarse ejection estimate. Refine ejection angle and add small normal/radial as needed.",
+    }
+
+
+# --- Vessel blueprint and part tree ---
+
+def part_tree(conn) -> Dict[str, Any]:
+    """
+    Return a hierarchical part tree with staging and module/resource summaries.
+
+    Shape: { parts: [ { id, title, name, tag?, stage, decouple_stage?, parent_id?, children_ids[],
+                        modules: [...], resources: {R:{amount,max}}, crossfeed? } ] }
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    parts_list = []
+    try:
+        all_parts = list(v.parts.all)
+    except Exception:
+        all_parts = []
+
+    # Index parts
+    id_map: Dict[int, int] = {}
+    for i, p in enumerate(all_parts):
+        id_map[id(p)] = i
+
+    # For robustness across kRPC versions, detect module presence per-part by probing attributes
+    def _detect_modules(p):
+        labels = []
+        for label, attr in (
+            ('Engine', 'engine'),
+            ('Decoupler', 'decoupler'),
+            ('Separator', 'separator'),
+            ('Parachute', 'parachute'),
+            ('DockingPort', 'docking_port'),
+            ('ReactionWheel', 'reaction_wheel'),
+            ('RCS', 'rcs'),
+            ('SolarPanel', 'solar_panel'),
+            ('Antenna', 'antenna'),
+            ('Command', 'command_module'),
+        ):
+            try:
+                if getattr(p, attr, None) is not None:
+                    labels.append(label)
+            except Exception:
+                continue
+        return labels
+
+    # Assemble part entries
+    for i, p in enumerate(all_parts):
+        parent_id = None
+        try:
+            pr = getattr(p, 'parent', None)
+            if pr is not None:
+                parent_id = id_map.get(id(pr))
+        except Exception:
+            parent_id = None
+        children_ids = []
+        try:
+            for ch in getattr(p, 'children', []) or []:
+                pid = id_map.get(id(ch))
+                if pid is not None:
+                    children_ids.append(pid)
+        except Exception:
+            children_ids = []
+
+        # Resources per part
+        res_map: Dict[str, Any] = {}
+        try:
+            pres = getattr(p, 'resources', None)
+            names = list(getattr(pres, 'names', []) or [])
+            for rn in names:
+                try:
+                    res_map[rn] = {
+                        'amount': pres.amount(rn),
+                        'max': pres.max(rn),
+                    }
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        entry = {
+            'id': i,
+            'title': getattr(p, 'title', None),
+            'name': getattr(p, 'name', None),
+            'tag': getattr(p, 'tag', None),
+            'stage': getattr(p, 'stage', None),
+            'decouple_stage': getattr(p, 'decouple_stage', None),
+            'parent_id': parent_id,
+            'children_ids': children_ids,
+            'modules': _detect_modules(p),
+            'resources': res_map,
+            'crossfeed': getattr(p, 'crossfeed', None),
+        }
+        parts_list.append(entry)
+
+    return {'parts': parts_list}
+
+
+def vessel_blueprint(conn) -> Dict[str, Any]:
+    """
+    Return an idealized vessel blueprint with stages, engines, controls, and a part tree.
+
+    Sections:
+      - meta: name, mass_kg, current_stage, total_stages, body, situation
+      - stages: from stage_plan_approx (current environment)
+      - engines: basic engine specs keyed by part id
+      - control_capabilities: counts of relevant systems
+      - parts: from part_tree()
+    """
+    sc = conn.space_center
+    v = sc.active_vessel
+    meta = {
+        'vessel_name': getattr(v, 'name', None),
+        'mass_kg': getattr(v, 'mass', None),
+        'current_stage': getattr(getattr(v, 'control', None), 'current_stage', None),
+        'total_stages': None,
+        'body': getattr(getattr(v, 'orbit', None), 'body', None).name if getattr(getattr(v, 'orbit', None), 'body', None) is not None else None,
+        'situation': _enum_name(getattr(v, 'situation', None)),
+    }
+
+    # Part tree
+    tree = part_tree(conn)
+    parts = tree.get('parts', [])
+
+    # Engines list with simple specs
+    engines = []
+    id_map = {}
+    try:
+        # Build id map again for Module to Part linkage
+        all_parts = list(v.parts.all)
+        id_map = {id(p): i for i, p in enumerate(all_parts)}
+    except Exception:
+        pass
+    try:
+        for e in getattr(v.parts, 'engines', []) or []:
+            try:
+                p = getattr(e, 'part', None)
+                pid = id_map.get(id(p)) if p is not None else None
+            except Exception:
+                pid = None
+            engines.append({
+                'part_id': pid,
+                'name': getattr(getattr(e, 'part', None), 'title', None),
+                'max_thrust_n': getattr(e, 'max_thrust', None),
+                'specific_impulse_s': getattr(e, 'specific_impulse', None),
+                'throttle': getattr(e, 'throttle', None),
+            })
+    except Exception:
+        pass
+
+    # Control capabilities
+    def _count(attr):
+        try:
+            return len(list(getattr(v.parts, attr)))
+        except Exception:
+            return None
+    control_caps = {
+        'command_modules': _count('command_modules'),
+        'reaction_wheels': _count('reaction_wheels'),
+        'rcs': _count('rcs'),
+        'docking_ports': _count('docking_ports'),
+        'parachutes': _count('parachutes'),
+        'antennas': _count('antennas'),
+        'solar_panels': _count('solar_panels'),
+    }
+
+    # Stage plan approximation
+    stage_plan = None
+    try:
+        stage_plan = stage_plan_approx(conn, environment='current')
+        stages = stage_plan.get('stages', []) if isinstance(stage_plan, dict) else None
+        if stages:
+            # Estimate total stages as count of segments in plan
+            meta['total_stages'] = len(stages)
+    except Exception:
+        stages = None
+
+    # Best-effort geometry: thrust axis from engine part directions (vessel frame)
+    thrust_axis = None
+    try:
+        ref = getattr(v, 'reference_frame')
+        dirs = []
+        for e in getattr(v.parts, 'engines', []) or []:
+            try:
+                p = getattr(e, 'part', None)
+                if p is None:
+                    continue
+                d = p.direction(ref)
+                if isinstance(d, (list, tuple)) and len(d) == 3:
+                    dirs.append([float(d[0]), float(d[1]), float(d[2])])
+            except Exception:
+                continue
+        if dirs:
+            sx = sum(d[0] for d in dirs); sy = sum(d[1] for d in dirs); sz = sum(d[2] for d in dirs)
+            n = (sx**2 + sy**2 + sz**2) ** 0.5
+            if n > 0:
+                thrust_axis = [sx / n, sy / n, sz / n]
+    except Exception:
+        thrust_axis = None
+
+    # Annotate parts with vessel-frame position and axial coordinate if thrust axis is known
+    try:
+        ref = getattr(v, 'reference_frame')
+        for p in parts:
+            try:
+                # Retrieve original part object to compute position
+                # We need mapping id->part again
+                pass
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    blueprint = {
+        'meta': meta,
+        'stages': stages,
+        'engines': engines,
+        'control_capabilities': control_caps,
+        'parts': parts,
+        'geometry': {
+            'thrust_axis_vessel': thrust_axis,
+            'center_of_mass_vessel': None,
+        },
+        'notes': [
+            'This is a best-effort blueprint derived from kRPC; some fields may be null when unavailable.',
+            'Use stages + parts.stage/decouple_stage to reason about staging order.',
+        ],
+    }
+    return blueprint
+
+
+def blueprint_ascii(conn) -> str:
+    """
+    Produce a compact ASCII summary using fast queries only:
+    - Header: name, body, situation, mass
+    - Per-stage rows from stage_plan_approx (engines/dv/TWR)
+    - Dec/Par/Dock counts via dedicated part groups (no full part scan)
+    """
+    v = conn.space_center.active_vessel
+    meta = {
+        'vessel_name': getattr(v, 'name', None),
+        'body': getattr(getattr(v, 'orbit', None), 'body', None).name if getattr(getattr(v, 'orbit', None), 'body', None) is not None else None,
+        'situation': _enum_name(getattr(v, 'situation', None)),
+        'mass_kg': getattr(v, 'mass', None),
+    }
+    sp = stage_plan_approx(conn, environment='current')
+    stages = sp.get('stages', []) if isinstance(sp, dict) else []
+
+    # Build fast counts from part groups
+    from collections import defaultdict
+    by_stage = defaultdict(lambda: {'dec':0,'par':0,'dock':0})
+
+    def stage_of(obj):
+        p = getattr(obj, 'part', None) or obj
+        s = getattr(p, 'stage', None)
+        if s is None or (isinstance(s, int) and s < 0):
+            s = getattr(p, 'decouple_stage', None)
+        return s
+
+    try:
+        for d in list(getattr(v.parts, 'decouplers', []) or []) + list(getattr(v.parts, 'separators', []) or []):
+            by_stage[stage_of(d)]['dec'] += 1
+    except Exception:
+        pass
+    try:
+        for c in list(getattr(v.parts, 'parachutes', []) or []):
+            by_stage[stage_of(c)]['par'] += 1
+    except Exception:
+        pass
+    try:
+        for dp in list(getattr(v.parts, 'docking_ports', []) or []):
+            by_stage[stage_of(dp)]['dock'] += 1
+    except Exception:
+        pass
+
+    lines = []
+    lines.append(f"Vessel: {meta.get('vessel_name')} | Body: {meta.get('body')} | Situation: {meta.get('situation')} | Mass: {meta.get('mass_kg')}")
+    lines.append("")
+    if not stages:
+        lines.append("(No stage plan available)")
+    else:
+        lines.append("Stage | Engines | Δv (m/s) | TWR | Dec/Par/Dock")
+        lines.append("----- | ------- | --------- | ---- | ------------")
+        for seg in sorted(stages, key=lambda x: x.get('stage', 0), reverse=True):
+            s = seg.get('stage')
+            eng = int(seg.get('engines') or 0)
+            dv = seg.get('delta_v_m_s')
+            twr = seg.get('twr_surface')
+            c = by_stage.get(s, {'dec':0,'par':0,'dock':0})
+            lines.append(f"{s:>5} | {eng:>7} | {dv if dv is not None else '-':>9} | {twr if twr is not None else '-':>4} | {c['dec']}/{c['par']}/{c['dock']}")
+    return "\n".join(lines)

@@ -62,6 +62,23 @@ The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Prog
    Use krpc_docs to execute_script with code "print('hello'); print('SUMMARY: done')" and address "192.168.1.10" rpc_port 50000 stream_port 50001
    ```
 
+## Data builders (kRPC docs & snippet library)
+
+The runtime MCP server now lives alongside two standalone builder projects under `krpc_MCP_data_builders/`:
+
+- `krpc_docs/` contains the crawler (`scripts/scrape_krpc_docs.py`) and search CLI for regenerating `data/krpc_python_docs.jsonl`. Install it with `pip install -e .[scrape]` inside that folder and run the provided console scripts. Copy the resulting JSONL back into `./data/` when you refresh the dataset.
+
+Each builder has its own `pyproject.toml`, README, and duplicated helper modules so it can run independently before you move it into a separate repository.
+
+### MCP server layout
+
+- `mcp_server/main.py` — wires up the FastMCP server and imports all tool/resource surfaces.
+- `mcp_server/executor_tools/` — execute_script implementations, background jobs, and artifact helpers (exposed via `mcp_server/executor_tools.py`).
+- `mcp_server/libraries/` + `mcp_server/libraries.py` — kRPC docs search, KSP wiki access, and snippet tooling with the public MCP entry points.
+- `mcp_server/general_tools.py` — tool entry points grouped by category; implementations live under `mcp_server/general_tools_impl/`.
+- `mcp_server/playbooks/` + `mcp_server/playbooks.py` — markdown playbooks served as MCP resources.
+- `mcp_server/utils/` — shared helpers (`krpc_utils`, `helper_utils`, `physics_utils`, etc.) used across the server packages.
+
 ## Core capabilities
 
 ### 🛰️ Live script execution

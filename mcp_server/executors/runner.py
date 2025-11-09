@@ -8,8 +8,8 @@ import time as _time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from ..krpc.client import connect_to_game
-from ..krpc import readers
+from ..utils.krpc_utils.client import connect_to_game
+from ..utils.krpc_utils import readers
 from .injectors import build_globals, restore_after_exec
 from .parsers import EXEC_META_PREFIX
 
