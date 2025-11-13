@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from .mcp_context import mcp
 from .general_tools_impl import (
@@ -338,6 +338,8 @@ Note:
   For big rockets this direct call can exceed the 60 s CLI limit. Prefer
   start_stage_plan_job -> get_job_status(job_id) -> read_resource(result_resource)
   to fetch the JSON artifact safely, and reserve this helper for quick snapshots.
+  For interpretation tips, see resource://playbooks/vessel-blueprint-usage and
+  resource://playbooks/launch-ascent-circularize.
 
 When to use:
   - Match KSP’s staging view for Δv/TWR per engine stage.
@@ -362,7 +364,9 @@ Returns:
   JSON: { current_stage, stages: [ { stage, engines, max_thrust_n,
   combined_isp_s?, delta_v_m_s?, twr_surface?, prop_mass_kg, m0_kg, m1_kg } ] }.
 
-Note: Uses standard KSP resource densities and current environment Isp; results are estimates."""
+Note: Uses standard KSP resource densities and current environment Isp; results are estimates.
+  For interpretation tips, see resource://playbooks/vessel-blueprint-usage and
+  resource://playbooks/launch-ascent-circularize."""
     return blueprints_parts_and_staging.get_staging_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 

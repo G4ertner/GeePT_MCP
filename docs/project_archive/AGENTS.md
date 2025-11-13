@@ -1,4 +1,4 @@
-# Repository Guidelines
+9# Repository Guidelines
 
 ## Project Structure & Module Organization
 - `mcp_server/` — MCP server, kRPC tools, blueprint export, resources, prompts.
