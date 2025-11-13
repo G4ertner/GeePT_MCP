@@ -16,6 +16,7 @@ from .general_tools_impl import (
     orbit_and_navigation,
     planning_helpers,
     power_and_resources,
+    screenshots,
     status_and_time,
     target_control,
 )
@@ -232,6 +233,21 @@ Returns:
   JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
   min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
     return flight_and_control.get_camera_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_screenshot(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, *, scale: int = 1) -> str:
+    """Capture a PNG screenshot of the current scene and return it as base64 along with file metadata.
+
+Notes:
+  - Requires the MCP server and KSP to run on the same PC (localhost/127.0.0.1/::1) so the saved file is accessible.
+
+Args:
+  scale: Resolution scaling factor forwarded to SpaceCenter.screenshot (1-4).
+
+Returns:
+  JSON: { ok, filename, saved_path, resource_uri, scale, captured_at, image: { mime, data_base64 } } or { error }."""
+    return screenshots.get_screenshot(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, scale=scale)
 
 
 # 🌬️🚀 Aerodynamics & engines 🌬️🚀 ---------------------------------------------------------------------
@@ -710,13 +726,24 @@ aero, engines, resources, maneuver_nodes, and surface."""
     return diagnostics.get_diagnostics(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
+
+# 📸 Screenshots 📸 ---------------------------------------------------------------------
+@mcp.resource("resource://screenshots/latest")
+def resource_get_latest_screenshot():
+    return screenshots.get_latest_cached()
+
+
+@mcp.resource("resource://screenshots/{filename}")
+def resource_get_screenshot_file(filename: str):
+    return screenshots.resource_payload_for(filename)
+
+
 # 🖼️📤 Blueprints 🖼️📤 ---------------------------------------------------------------------
 
 
 @mcp.tool()
 def export_blueprint_diagram(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, *, format: str = 'svg', out_dir: str | None = None) -> str:
     return blueprints.export_blueprint_diagram(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, format=format, out_dir=out_dir)
-
 
 @mcp.resource("resource://blueprints/latest")
 def resource_get_latest_blueprint():

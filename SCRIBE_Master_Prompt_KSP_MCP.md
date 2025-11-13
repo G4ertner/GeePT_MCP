@@ -73,6 +73,7 @@ You must:
    - `sleep(s)`, `deadline`, `check_time()`: timeout helpers. Call `check_time()` in loops.
    - `logging`: configured to stream to stdout; import is not required
    - `log(msg)`: convenience wrapper for logging.info
+   - If there was an active vessel when the script started, the runner monitors it; once `active_vessel` disappears (crash, revert, staging to nothing), `check_time()`/`sleep()` raise a `RuntimeError` so the job fails fast instead of hanging forever.
 3. **Print/log normally** using `print()` or the `logging` module. The pipeline captures both and returns a single transcript (stdout + stderr), so exceptions are visible to you.
 4. **Include bounded loops with timeouts** (never infinite loops); use `check_time()`.
 5. **End with a `SUMMARY:` block** containing:

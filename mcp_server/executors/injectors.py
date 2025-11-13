@@ -25,15 +25,18 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
         deadline = start + max(0.1, float(timeout_sec))
 
     def check_time():
-        if _time.monotonic() > deadline:
-            raise TimeoutError("Script exceeded timeout budget")
+        _enforce_runtime_guards()
 
     def sleep(seconds: float):
         # Bound sleeps and remain responsive to timeout
         t_end = _time.monotonic() + max(0.0, float(seconds))
-        while _time.monotonic() < t_end:
-            check_time()
-            _time.sleep(min(0.25, t_end - _time.monotonic()))
+        while True:
+            now = _time.monotonic()
+            if now >= t_end:
+                break
+            _enforce_runtime_guards()
+            remaining = t_end - now
+            _time.sleep(min(0.25, remaining))
 
     # Logging: configure root logger to stream to stdout with a simple prefix
     # Route logging to stdout so it's included in transcript
@@ -42,11 +45,16 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
     def log(msg: Any):
         logging.info(str(msg))
 
+    try:
+        initial_vessel = getattr(conn.space_center, "active_vessel", None)
+    except Exception:
+        initial_vessel = None
+
     g: Dict[str, Any] = {
         "__name__": "__main__",
         "conn": conn,
         # active_vessel may not exist depending on scene; keep it optional
-        "vessel": None,
+        "vessel": initial_vessel,
         "time": _time,
         "math": _math,
         "sleep": sleep,
@@ -58,11 +66,44 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
         "__builtins__": builtins,
     }
 
-    # Try to fetch an active vessel but tolerate missing context (e.g., KSC scene)
-    try:
-        g["vessel"] = getattr(conn.space_center, "active_vessel", None)
-    except Exception:
-        g["vessel"] = None
+    require_active_vessel = initial_vessel is not None
+    missing_polls = 0
+    max_missing_polls = 3
+    last_missing_exc: Exception | None = None
+
+    def ensure_active_vessel():
+        """Abort the script if the active vessel disappears mid-flight."""
+        nonlocal missing_polls, require_active_vessel, last_missing_exc
+        try:
+            current_vessel = getattr(conn.space_center, "active_vessel", None)
+        except Exception as exc:  # pragma: no cover - depends on kRPC errors
+            current_vessel = None
+            last_missing_exc = exc
+        else:
+            last_missing_exc = None
+
+        if current_vessel is None:
+            if not require_active_vessel:
+                return
+            missing_polls += 1
+            if missing_polls >= max_missing_polls:
+                detail = (
+                    f" ({last_missing_exc.__class__.__name__})" if last_missing_exc else ""
+                )
+                raise RuntimeError(
+                    "Active vessel disappeared (likely crashed or reverted)." + detail
+                )
+            return
+
+        # Reset counters and refresh the exposed vessel reference to follow staging events
+        missing_polls = 0
+        require_active_vessel = True
+        g["vessel"] = current_vessel
+
+    def _enforce_runtime_guards():
+        ensure_active_vessel()
+        if _time.monotonic() > deadline:
+            raise TimeoutError("Script exceeded timeout budget")
 
     cleanup: Dict[str, Any] = {}
 
@@ -150,7 +191,7 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
             # give KSP a moment to update staging
             try:
                 sleep(0.2)
-            except Exception:
+            except TimeoutError:
                 pass
         if cleared is None:
             # Could not determine presence of clamps
@@ -168,14 +209,14 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
             while _time.monotonic() - t0 < 1.0:
                 try:
                     check_time()
-                except Exception:
+                except TimeoutError:
                     # If no soft deadline, continue
                     pass
                 if _sum_thrust(g.get("vessel")) > float(thrust_threshold_n):
                     return True
                 try:
                     sleep(0.1)
-                except Exception:
+                except TimeoutError:
                     pass
         return False
 
@@ -196,7 +237,7 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
         while _time.monotonic() - t0 < float(timeout_s):
             try:
                 check_time()
-            except Exception:
+            except TimeoutError:
                 pass
             try:
                 # Situation check
@@ -218,7 +259,7 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
                 pass
             try:
                 sleep(0.25)
-            except Exception:
+            except TimeoutError:
                 pass
         return False
 
@@ -236,6 +277,7 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
         "stage_until_thrust": _stage_until_thrust,
         "wait_for_liftoff": _wait_for_liftoff,
         "situation": _situation_name,
+        "ensure_active_vessel": ensure_active_vessel,
     }
 
     return g, cleanup

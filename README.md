@@ -91,7 +91,7 @@ The `execute_script` tool allows your LLM to run kRPC Python code against your r
 - a preconfigured `logging` module and a `log(msg)` convenience function
 - A status summary of flight variables after successful execution or catastrophic failure
 
-Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step. For burns that need more than ~60 s of supervision, use `start_execute_script_job` instead: it streams stdout/stderr into `get_job_status`, lets you alternate those polls with `get_status_overview`/`get_flight_snapshot`, and can be aborted instantly via `cancel_job(job_id)` if telemetry goes sideways.
+Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step. For burns that need more than ~60 s of supervision, use `start_execute_script_job` instead: it streams stdout/stderr into `get_job_status`, lets you alternate those polls with `get_status_overview`/`get_flight_snapshot`, and can be aborted instantly via `cancel_job(job_id)` if telemetry goes sideways. If the rocket disintegrates or you revert while the job is running, the runner now notices the missing `active_vessel`, aborts immediately, and returns `ok=false` so you can treat the crash as a failure instead of spinning forever.
 
 ### 🛠️ Vessel blueprints & diagrams
 
@@ -172,6 +172,7 @@ On top of that, the MCP server comes with a whole set of hardcoded tools your LL
 - `get_attitude_status` — SAS/RCS/throttle and autopilot targets.
 - `get_action_groups_status` — Action group toggles.
 - `get_camera_status` — Camera mode and parameters.
+- `get_screenshot` — Captures a PNG screenshot (localhost-only) and returns base64 + a reusable resource URI.
 
 #### 🌬️ Aerodynamics & Engines
 - `get_aero_status` — Dynamic pressure, Mach, density, drag/lift.
