@@ -140,10 +140,24 @@ Attitude/control state for the active vessel.
 
 When to use:
   - Verify SAS/RCS/throttle state and autopilot targets before burns.
+  - Pair with set_sas_mode to adjust navball hold behaviors.
 
 Returns:
   JSON: { sas, sas_mode, rcs, throttle, autopilot_state, autopilot_target_pitch,
-  autopilot_target_heading, autopilot_target_roll }.
+  autopilot_target_heading, autopilot_target_roll, speed_mode? }.
+
+## set_sas_mode
+Signature: (address: 'str', mode: 'str', enable_sas: 'bool' = True, rpc_port: 'int' = 50000, stream_port: 'int' = 50001, name: 'str | None' = None, timeout: 'float' = 5.0) -> 'str'
+Docstring:
+Set SAS on/off and select an SAS hold mode.
+
+Args:
+  mode: One of the SAS modes (stability_assist, prograde, retrograde, normal, anti_normal,
+    radial, anti_radial, target, anti_target, maneuver). Case- and dash/underscore-insensitive.
+  enable_sas: If true, toggle SAS on before setting the mode.
+
+Returns:
+  Human-readable status string (success or error).
 
 ## get_blueprint_ascii
 Signature: (address: 'str', rpc_port: 'int' = 50000, stream_port: 'int' = 50001, name: 'str | None' = None, timeout: 'float' = 5.0) -> 'str'
@@ -541,6 +555,7 @@ Create a maneuver node at a specific UT with given vector components.
 
 When to use:
   - Apply a proposed burn from compute_* helpers to the game.
+  - LLM: After creating the node, set SAS to target via set_sas_mode before executing the burn.
 
 Args:
   ut: Universal time for the node

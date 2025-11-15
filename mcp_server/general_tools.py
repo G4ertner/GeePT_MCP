@@ -202,12 +202,13 @@ Returns:
 def get_attitude_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Attitude/control state for the active vessel.
 
-When to use:
-  - Verify SAS/RCS/throttle state and autopilot targets before burns.
+    When to use:
+      - Verify SAS/RCS/throttle state and autopilot targets before burns.
+      - Pair with set_sas_mode to adjust navball hold behaviors.
 
-Returns:
-  JSON: { sas, sas_mode, rcs, throttle, autopilot_state, autopilot_target_pitch,
-  autopilot_target_heading, autopilot_target_roll }."""
+    Returns:
+    JSON: { sas, sas_mode, rcs, throttle, autopilot_state, autopilot_target_pitch,
+    autopilot_target_heading, autopilot_target_roll, speed_mode? }."""
     return flight_and_control.get_attitude_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
@@ -229,10 +230,24 @@ Returns:
 def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Active camera parameters when available: mode, pitch, heading, distance, and limits.
 
-Returns:
-  JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
-  min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
+    Returns:
+      JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
+      min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
     return flight_and_control.get_camera_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Set SAS on/off and select an SAS hold mode.
+
+    Args:
+      mode: One of the SAS modes (stability_assist, prograde, retrograde, normal, anti_normal,
+        radial, anti_radial, target, anti_target, maneuver). Case- and dash/underscore-insensitive.
+      enable_sas: If true, toggle SAS on before setting the mode.
+
+    Returns:
+      Human-readable status string (success or error)."""
+    return flight_and_control.set_sas_mode(address=address, mode=mode, enable_sas=enable_sas, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
 @mcp.tool()
@@ -559,13 +574,14 @@ Returns:
 def set_maneuver_node(address: str, ut: float, prograde: float = 0.0, normal: float = 0.0, radial: float = 0.0, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Create a maneuver node at a specific UT with given vector components.
 
-When to use:
-  - Apply a proposed burn from compute_* helpers to the game.
+    When to use:
+      - Apply a proposed burn from compute_* helpers to the game.
+      - LLM: After creating the node, set SAS to target via set_sas_mode before executing the burn.
 
-Args:
-  ut: Universal time for the node
-  prograde: Prograde component (m/s)
-  normal: Normal component (m/s)
+    Args:
+      ut: Universal time for the node
+      prograde: Prograde component (m/s)
+      normal: Normal component (m/s)
   radial: Radial component (m/s)
 
 Returns:

@@ -90,6 +90,10 @@ def get_attitude_status(*args, **kwargs):
     return flight_and_control.get_attitude_status(*args, **kwargs)
 
 
+def set_sas_mode(*args, **kwargs):
+    return flight_and_control.set_sas_mode(*args, **kwargs)
+
+
 @mcp.tool()
 def get_action_groups_status(*args, **kwargs):
     return flight_and_control.get_action_groups_status(*args, **kwargs)
@@ -328,6 +332,7 @@ _TOOL_DOC_SOURCES = {
     "get_surface_info": environment_and_surface.get_surface_info,
     "get_flight_snapshot": flight_and_control.get_flight_snapshot,
     "get_attitude_status": flight_and_control.get_attitude_status,
+    "set_sas_mode": flight_and_control.set_sas_mode,
     "get_action_groups_status": flight_and_control.get_action_groups_status,
     "get_camera_status": flight_and_control.get_camera_status,
     "get_aero_status": aerodynamics_and_engines.get_aero_status,

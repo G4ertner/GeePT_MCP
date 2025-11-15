@@ -171,9 +171,20 @@ def attitude_status(conn) -> Dict[str, Any]:
     v = conn.space_center.active_vessel
     ctrl = v.control
     ap = v.auto_pilot
+    sas_mode = None
+    try:
+        sas_mode = getattr(ctrl, "sas_mode", None)
+    except Exception:
+        pass
+    if sas_mode is None:
+        try:
+            sas_mode = getattr(ap, "sas_mode", None)
+        except Exception:
+            pass
+
     data = {
         "sas": getattr(ctrl, "sas", None),
-        "sas_mode": _enum_name(getattr(ctrl, "sas_mode", None)),
+        "sas_mode": _enum_name(sas_mode),
         "rcs": getattr(ctrl, "rcs", None),
         "throttle": getattr(ctrl, "throttle", None),
     }
@@ -183,6 +194,10 @@ def attitude_status(conn) -> Dict[str, Any]:
         data["autopilot_target_pitch"] = getattr(ap, "target_pitch", None)
         data["autopilot_target_heading"] = getattr(ap, "target_heading", None)
         data["autopilot_target_roll"] = getattr(ap, "target_roll", None)
+    except Exception:
+        pass
+    try:
+        data["speed_mode"] = _enum_name(getattr(ctrl, "speed_mode", None))
     except Exception:
         pass
     return data

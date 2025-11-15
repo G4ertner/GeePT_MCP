@@ -169,7 +169,8 @@ On top of that, the MCP server comes with a whole set of hardcoded tools your LL
 
 #### 🛩️ Flight & Control
 - `get_flight_snapshot` — Flight parameters (altitude, speeds, AoA, attitude).
-- `get_attitude_status` — SAS/RCS/throttle and autopilot targets.
+- `get_attitude_status` — SAS/RCS/throttle, SAS mode, and autopilot targets.
+- `set_sas_mode` — Enable SAS and pick navball hold mode (prograde/retrograde/etc.).
 - `get_action_groups_status` — Action group toggles.
 - `get_camera_status` — Camera mode and parameters.
 - `get_screenshot` — Captures a PNG screenshot (localhost-only) and returns base64 + a reusable resource URI.
