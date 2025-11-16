@@ -17,7 +17,13 @@ def list_bodies(address: str, rpc_port: int = 50000, stream_port: int = 50001, n
       JSON array: { name, parent?, has_atmosphere, radius_m, soi_radius_m }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.list_bodies(conn))
+    try:
+        return json.dumps(readers.list_bodies(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def list_waypoints(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -29,4 +35,10 @@ def list_waypoints(address: str, rpc_port: int = 50000, stream_port: int = 50001
       distance_m?, bearing_deg? }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.list_waypoints(conn))
+    try:
+        return json.dumps(readers.list_waypoints(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

@@ -1,4 +1,4 @@
-#+ Handoff Notes — kRPC MCP Server for KSP
+#+ Handoff Notes — GeePT MCP (Kerbal Mission Command Protocol) for KSP
 
 This document captures key implementation insights, current status, and pragmatic guidance for the next agent continuing this work.
 

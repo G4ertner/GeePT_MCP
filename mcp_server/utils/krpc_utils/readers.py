@@ -82,24 +82,47 @@ def environment_info(conn) -> Dict[str, Any]:
 
 def flight_snapshot(conn) -> Dict[str, Any]:
     v = conn.space_center.active_vessel
-    # Use a consistent, meaningful reference frame for velocities: surface rotating frame
-    try:
-        f_surf = v.flight(v.orbit.body.reference_frame)
-    except Exception:
-        f_surf = v.flight()
+    # Sample flight data from frames suited to each measurement so navball angles and
+    # surface-relative velocities match the in-game HUD.
+    def _safe_flight(frame_getter):
+        try:
+            frame = frame_getter()
+            if frame is None:
+                raise AttributeError("frame is None")
+            return v.flight(frame)
+        except Exception:
+            return None
+
+    # Navball-aligned data (pitch/heading/roll/AoA/G) use the vessel's surface frame.
+    f_nav = _safe_flight(lambda: v.surface_reference_frame)
+    if f_nav is None:
+        try:
+            f_nav = v.flight()
+        except Exception:
+            f_nav = None
+
+    # Velocities should come from the body's rotating reference frame (planet-fixed)
+    # so that horizontal/vertical speeds match what the navball reports.
+    f_surface = _safe_flight(lambda: v.orbit.body.reference_frame)
+    if f_surface is None:
+        try:
+            f_surface = v.flight()
+        except Exception:
+            f_surface = None
+
     data = {
-        "altitude_sea_level_m": getattr(f_surf, "mean_altitude", None),
-        "altitude_terrain_m": getattr(f_surf, "surface_altitude", None),
-        "vertical_speed_m_s": getattr(f_surf, "vertical_speed", None),
-        "speed_surface_m_s": getattr(f_surf, "speed", None),
-        "speed_horizontal_m_s": getattr(f_surf, "horizontal_speed", None),
-        "dynamic_pressure_pa": getattr(f_surf, "dynamic_pressure", None),
-        "mach": getattr(f_surf, "mach", None),
-        "g_force": getattr(f_surf, "g_force", None),
-        "angle_of_attack_deg": getattr(f_surf, "angle_of_attack", None),
-        "pitch_deg": getattr(f_surf, "pitch", None),
-        "roll_deg": getattr(f_surf, "roll", None),
-        "heading_deg": getattr(f_surf, "heading", None),
+        "altitude_sea_level_m": getattr(f_surface, "mean_altitude", None),
+        "altitude_terrain_m": getattr(f_surface, "surface_altitude", None),
+        "vertical_speed_m_s": getattr(f_surface, "vertical_speed", None),
+        "speed_surface_m_s": getattr(f_surface, "speed", None),
+        "speed_horizontal_m_s": getattr(f_surface, "horizontal_speed", None),
+        "dynamic_pressure_pa": getattr(f_surface, "dynamic_pressure", None),
+        "mach": getattr(f_surface, "mach", None),
+        "g_force": getattr(f_nav, "g_force", None),
+        "angle_of_attack_deg": getattr(f_nav, "angle_of_attack", None),
+        "pitch_deg": getattr(f_nav, "pitch", None),
+        "roll_deg": getattr(f_nav, "roll", None),
+        "heading_deg": getattr(f_nav, "heading", None),
     }
     # Also provide an orbital/non-rotating frame speed for completeness
     try:
@@ -148,9 +171,20 @@ def attitude_status(conn) -> Dict[str, Any]:
     v = conn.space_center.active_vessel
     ctrl = v.control
     ap = v.auto_pilot
+    sas_mode = None
+    try:
+        sas_mode = getattr(ctrl, "sas_mode", None)
+    except Exception:
+        pass
+    if sas_mode is None:
+        try:
+            sas_mode = getattr(ap, "sas_mode", None)
+        except Exception:
+            pass
+
     data = {
         "sas": getattr(ctrl, "sas", None),
-        "sas_mode": _enum_name(getattr(ctrl, "sas_mode", None)),
+        "sas_mode": _enum_name(sas_mode),
         "rcs": getattr(ctrl, "rcs", None),
         "throttle": getattr(ctrl, "throttle", None),
     }
@@ -160,6 +194,10 @@ def attitude_status(conn) -> Dict[str, Any]:
         data["autopilot_target_pitch"] = getattr(ap, "target_pitch", None)
         data["autopilot_target_heading"] = getattr(ap, "target_heading", None)
         data["autopilot_target_roll"] = getattr(ap, "target_roll", None)
+    except Exception:
+        pass
+    try:
+        data["speed_mode"] = _enum_name(getattr(ctrl, "speed_mode", None))
     except Exception:
         pass
     return data

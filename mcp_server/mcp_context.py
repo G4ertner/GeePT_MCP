@@ -6,4 +6,4 @@ __all__ = ["mcp"]
 
 
 # A single FastMCP instance is reused everywhere to avoid circular imports.
-mcp = FastMCP("krpc_docs")
+mcp = FastMCP("geept_mcp")

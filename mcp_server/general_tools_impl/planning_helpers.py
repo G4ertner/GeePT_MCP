@@ -24,7 +24,13 @@ def compute_burn_time(address: str, dv_m_s: float, environment: str = "current",
     env = (environment or "current").lower()
     if env not in ("current", "sea_level", "vacuum"):
         env = "current"
-    return json.dumps(readers.compute_burn_time(conn, dv_m_s=dv_m_s, environment=env))
+    try:
+        return json.dumps(readers.compute_burn_time(conn, dv_m_s=dv_m_s, environment=env))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def compute_circularize_node(address: str, at: str = "apoapsis", rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -41,7 +47,13 @@ def compute_circularize_node(address: str, at: str = "apoapsis", rpc_port: int =
       Proposal: { ut, prograde, normal=0, radial=0, v_now_m_s, v_circ_m_s }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.propose_circularize_node(conn, at=at))
+    try:
+        return json.dumps(readers.propose_circularize_node(conn, at=at))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def compute_plane_change_nodes(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -54,7 +66,13 @@ def compute_plane_change_nodes(address: str, rpc_port: int = 50000, stream_port:
     Returns UT and normal delta-v suggestions for AN and DN when available.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.propose_plane_change_nodes(conn))
+    try:
+        return json.dumps(readers.propose_plane_change_nodes(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def compute_raise_lower_node(address: str, kind: str, target_alt_m: float, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -69,7 +87,13 @@ def compute_raise_lower_node(address: str, kind: str, target_alt_m: float, rpc_p
       Proposal: { ut, prograde, normal=0, radial=0, v_now_m_s, v_target_m_s }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.propose_raise_lower_node(conn, kind=kind, target_alt_m=target_alt_m))
+    try:
+        return json.dumps(readers.propose_raise_lower_node(conn, kind=kind, target_alt_m=target_alt_m))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def compute_rendezvous_phase_node(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -83,7 +107,13 @@ def compute_rendezvous_phase_node(address: str, rpc_port: int = 50000, stream_po
       Proposal at next Pe: { ut, prograde, normal=0, radial=0, P_phase_s, m, T_align_s }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.propose_rendezvous_phase_node(conn))
+    try:
+        return json.dumps(readers.propose_rendezvous_phase_node(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def compute_transfer_window_to_body(address: str, body_name: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -97,7 +127,13 @@ def compute_transfer_window_to_body(address: str, body_name: str, rpc_port: int 
     Robust fallbacks infer the star/common parent when parent references are missing.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.propose_transfer_window_to_body(conn, target_body_name=body_name))
+    try:
+        return json.dumps(readers.propose_transfer_window_to_body(conn, target_body_name=body_name))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def compute_ejection_node_to_body(address: str, body_name: str, parking_alt_m: float, environment: str = "current", rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -119,4 +155,10 @@ def compute_ejection_node_to_body(address: str, body_name: str, parking_alt_m: f
     env = (environment or "current").lower()
     if env not in ("current", "sea_level", "vacuum"):
         env = "current"
-    return json.dumps(readers.propose_ejection_node_to_body(conn, target_body_name=body_name, parking_alt_m=parking_alt_m, environment=env))
+    try:
+        return json.dumps(readers.propose_ejection_node_to_body(conn, target_body_name=body_name, parking_alt_m=parking_alt_m, environment=env))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

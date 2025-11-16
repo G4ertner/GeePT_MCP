@@ -19,7 +19,7 @@ API = f"{BASE}/api.php"
 REST_PLAIN = f"{BASE}/api/rest_v1/page/plain"
 
 
-_UA = "krpc-docs-mcp/0.1 (+https://github.com/G4ertner/kRPC_docs_MCP)"
+_UA = "geept-mcp/0.1 (+https://github.com/G4ertner/geept_mcp)"
 
 # Known language code suffixes (lowercase) to exclude from English-only results
 _LANG_SUFFIXES = {

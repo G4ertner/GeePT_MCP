@@ -21,7 +21,13 @@ def get_part_tree(address: str, rpc_port: int = 50000, stream_port: int = 50001,
               modules: [...], resources: {R:{amount,max}}, crossfeed? } ] }
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.part_tree(conn))
+    try:
+        return json.dumps(readers.part_tree(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def get_vessel_blueprint(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -35,13 +41,19 @@ def get_vessel_blueprint(address: str, rpc_port: int = 50000, stream_port: int =
       JSON with sections: meta, stages, engines, control_capabilities, parts, geometry, notes.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    bp = readers.vessel_blueprint(conn)
     try:
-        # Cache for blueprint resource
-        set_latest_blueprint(bp)
-    except Exception:
-        pass
-    return json.dumps(bp)
+        bp = readers.vessel_blueprint(conn)
+        try:
+            # Cache for blueprint resource
+            set_latest_blueprint(bp)
+        except Exception:
+            pass
+        return json.dumps(bp)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def get_blueprint_ascii(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -57,6 +69,11 @@ def get_blueprint_ascii(address: str, rpc_port: int = 50000, stream_port: int = 
         return s
     except Exception as e:
         return f"Failed to build ASCII blueprint: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def get_stage_plan(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, environment: str = "current") -> str:
@@ -83,7 +100,13 @@ def get_stage_plan(address: str, rpc_port: int = 50000, stream_port: int = 50001
     env = (environment or "current").lower()
     if env not in ("current", "sea_level", "vacuum"):
         env = "current"
-    return json.dumps(readers.stage_plan_approx(conn, environment=env))
+    try:
+        return json.dumps(readers.stage_plan_approx(conn, environment=env))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def get_staging_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -100,4 +123,10 @@ def get_staging_info(address: str, rpc_port: int = 50000, stream_port: int = 500
     Note: Uses standard KSP resource densities and current environment Isp; results are estimates.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.staging_info(conn))
+    try:
+        return json.dumps(readers.staging_info(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
