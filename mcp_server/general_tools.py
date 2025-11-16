@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from .mcp_context import mcp
 from .general_tools_impl import (
@@ -16,6 +16,7 @@ from .general_tools_impl import (
     orbit_and_navigation,
     planning_helpers,
     power_and_resources,
+    screenshots,
     status_and_time,
     target_control,
 )
@@ -196,17 +197,16 @@ Returns:
 
 
 @mcp.tool()
-
-
 def get_attitude_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Attitude/control state for the active vessel.
 
-When to use:
-  - Verify SAS/RCS/throttle state and autopilot targets before burns.
+    When to use:
+      - Verify SAS/RCS/throttle state and autopilot targets before burns.
+      - Pair with set_sas_mode to adjust navball hold behaviors.
 
-Returns:
-  JSON: { sas, sas_mode, rcs, throttle, autopilot_state, autopilot_target_pitch,
-  autopilot_target_heading, autopilot_target_roll }."""
+    Returns:
+    JSON: { sas, sas_mode, rcs, throttle, autopilot_state, autopilot_target_pitch,
+    autopilot_target_heading, autopilot_target_roll, speed_mode? }."""
     return flight_and_control.get_attitude_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
@@ -223,15 +223,43 @@ Returns:
 
 
 @mcp.tool()
-
-
 def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Active camera parameters when available: mode, pitch, heading, distance, and limits.
 
-Returns:
-  JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
-  min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
+    Returns:
+      JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
+      min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
     return flight_and_control.get_camera_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Set SAS on/off and select an SAS hold mode.
+
+    Args:
+      mode: One of the SAS modes (stability_assist, prograde, retrograde, normal, anti_normal,
+        radial, anti_radial, target, anti_target, maneuver). Case- and dash/underscore-insensitive.
+      enable_sas: If true, toggle SAS on before setting the mode.
+
+    Returns:
+      Human-readable status string (success or error)."""
+    return flight_and_control.set_sas_mode(address=address, mode=mode, enable_sas=enable_sas, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def get_screenshot(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, *, scale: int = 1) -> str:
+    """Capture a PNG screenshot of the current scene and return it as base64 along with file metadata.
+
+    Notes:
+      - Requires the MCP server and KSP to run on the same PC (localhost/127.0.0.1/::1) so the saved file is accessible.
+      - LLM: After calling, fetch/render the returned resource URI (or resource://screenshots/latest) via read_resource/view_image so you actually see the image in chat.
+
+    Args:
+      scale: Resolution scaling factor forwarded to SpaceCenter.screenshot (1-4).
+
+    Returns:
+  JSON: { ok, filename, saved_path, resource_uri, scale, captured_at, image: { mime, data_base64 } } or { error }."""
+    return screenshots.get_screenshot(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, scale=scale)
 
 
 # 🌬️🚀 Aerodynamics & engines 🌬️🚀 ---------------------------------------------------------------------
@@ -338,6 +366,8 @@ Note:
   For big rockets this direct call can exceed the 60 s CLI limit. Prefer
   start_stage_plan_job -> get_job_status(job_id) -> read_resource(result_resource)
   to fetch the JSON artifact safely, and reserve this helper for quick snapshots.
+  For interpretation tips, see resource://playbooks/vessel-blueprint-usage and
+  resource://playbooks/launch-ascent-circularize.
 
 When to use:
   - Match KSP’s staging view for Δv/TWR per engine stage.
@@ -362,7 +392,9 @@ Returns:
   JSON: { current_stage, stages: [ { stage, engines, max_thrust_n,
   combined_isp_s?, delta_v_m_s?, twr_surface?, prop_mass_kg, m0_kg, m1_kg } ] }.
 
-Note: Uses standard KSP resource densities and current environment Isp; results are estimates."""
+Note: Uses standard KSP resource densities and current environment Isp; results are estimates.
+  For interpretation tips, see resource://playbooks/vessel-blueprint-usage and
+  resource://playbooks/launch-ascent-circularize."""
     return blueprints_parts_and_staging.get_staging_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
@@ -539,13 +571,14 @@ Returns:
 def set_maneuver_node(address: str, ut: float, prograde: float = 0.0, normal: float = 0.0, radial: float = 0.0, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Create a maneuver node at a specific UT with given vector components.
 
-When to use:
-  - Apply a proposed burn from compute_* helpers to the game.
+    When to use:
+      - Apply a proposed burn from compute_* helpers to the game.
+      - LLM: After creating the node, set SAS to target via set_sas_mode before executing the burn.
 
-Args:
-  ut: Universal time for the node
-  prograde: Prograde component (m/s)
-  normal: Normal component (m/s)
+    Args:
+      ut: Universal time for the node
+      prograde: Prograde component (m/s)
+      normal: Normal component (m/s)
   radial: Radial component (m/s)
 
 Returns:
@@ -580,6 +613,19 @@ Returns:
 
 @mcp.tool()
 def warp_to(address: str, ut: float, lead_time_s: float = 0.0, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """
+    Best‑effort warp‑to.
+
+    When to use:
+      - Warp to a node or event time with optional lead time.
+
+    Args:
+      ut: Target universal time to arrive at
+      lead_time_s: Seconds to arrive before UT (e.g., half burn time)
+
+    Returns:
+      Human‑readable status string, or a message if unsupported.
+    """
     return maneuver_nodes.warp_to(address=address, ut=ut, lead_time_s=lead_time_s, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
@@ -706,13 +752,35 @@ aero, engines, resources, maneuver_nodes, and surface."""
     return diagnostics.get_diagnostics(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
+
+# 📸 Screenshots 📸 ---------------------------------------------------------------------
+@mcp.resource("resource://screenshots/latest")
+def resource_get_latest_screenshot():
+    return screenshots.get_latest_cached()
+
+
+@mcp.resource("resource://screenshots/{filename}")
+def resource_get_screenshot_file(filename: str):
+    return screenshots.resource_payload_for(filename)
+
+
 # 🖼️📤 Blueprints 🖼️📤 ---------------------------------------------------------------------
 
 
 @mcp.tool()
 def export_blueprint_diagram(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, *, format: str = 'svg', out_dir: str | None = None) -> str:
-    return blueprints.export_blueprint_diagram(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, format=format, out_dir=out_dir)
+    """Export a 2D vessel blueprint diagram (SVG/PNG) and expose it as a resource.
 
+    Notes:
+      - Saves the diagram under artifacts/blueprints and returns a resource URI so the LLM can fetch/view it.
+      - Use format 'svg' (default) or 'png'; png requires Pillow installed.
+      - After calling, load the returned resource URI (or resource://blueprints/last-diagram.svg|.png) via read_resource/view_image to see the image in chat.
+
+    Args:
+      format: 'svg' or 'png'
+      out_dir: Optional output directory; defaults to artifacts/blueprints
+    """
+    return blueprints.export_blueprint_diagram(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, format=format, out_dir=out_dir)
 
 @mcp.resource("resource://blueprints/latest")
 def resource_get_latest_blueprint():

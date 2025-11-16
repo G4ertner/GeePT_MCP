@@ -44,7 +44,7 @@ def connect_to_game(
     try:
         try:
             conn = krpc.connect(
-                name=name or "kRPC_docs_MCP",
+                name=name or "geept_mcp",
                 address=address,
                 rpc_port=rpc_port,
                 stream_port=stream_port,

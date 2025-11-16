@@ -14,4 +14,10 @@ def list_docking_ports(address: str, rpc_port: int = 50000, stream_port: int = 5
       JSON array: { part, state, ready, dockee }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.docking_ports(conn))
+    try:
+        return json.dumps(readers.docking_ports(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

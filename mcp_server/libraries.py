@@ -1,78 +1,197 @@
 from __future__ import annotations
 
-from functools import wraps
-
 from .mcp_context import mcp
 from .library_impl import krpc_docs, ksp_wiki, snippets
 
 
+def _copy_doc(target, source):
+    target.__doc__ = getattr(source, "__doc__", None)
+    return target
+
+
 @mcp.tool()
-@wraps(krpc_docs.search_krpc_docs_impl)
 def search_krpc_docs(query: str, limit: int = 10) -> str:
+    """
+    Search the kRPC Python docs (plus Welcome/Getting Started/Tutorials) and return the top results.
+    When to use:
+        - Explore kRPC APIs, examples, or concepts before implementing a call.
+    Args:
+        query: Free-text query
+        limit: Max results to return (default 10)
+    Returns:
+        A newline-delimited list of formatted results with title and URL and a short snippet.
+    """
     return krpc_docs.search_krpc_docs_impl(query=query, limit=limit)
 
 
 @mcp.tool()
-@wraps(krpc_docs.get_krpc_doc_impl)
 def get_krpc_doc(url: str, max_chars: int = 5000) -> str:
+    """
+    Retrieve a kRPC doc page by URL and return its text content. Use with URLs from search_krpc_docs.
+    When to use:
+        - Pull the full text of a doc page to inspect details and examples.
+    Args:
+        url: Exact page URL from the dataset
+        max_chars: Truncate returned content to this many characters (default 5000)
+    Returns:
+        Title, URL, and cleaned page text (truncated) with basic headings metadata.
+    """
     return krpc_docs.get_krpc_doc_impl(url=url, max_chars=max_chars)
 
 
+
 @mcp.tool()
-@wraps(krpc_docs.get_job_status_impl)
 def get_job_status(job_id: str) -> str:
+    """
+    Poll the status of a background job started by tools such as start_part_tree_job.
+
+    Usage pattern:
+        1. Call a job-starting tool (e.g., start_part_tree_job/start_stage_plan_job) to get a job_id.
+        2. Poll get_job_status(job_id) until "status" == "SUCCEEDED" (or FAILED for troubleshooting).
+        3. When SUCCEEDED, call read_resource on "result_resource" (resource://jobs/<id>.json) to fetch the artifact.
+        4. If FAILED, inspect logs/error, address the issue, and optionally restart the job.
+
+    Returns:
+        JSON string with fields:
+            - job_id: the requested identifier
+            - status: PENDING | RUNNING | SUCCEEDED | FAILED | CANCELLED (or UNKNOWN when not found)
+            - created_at / started_at / finished_at timestamps (ISO 8601, UTC) when available
+            - logs: accumulated stdout/stderr/log entries
+            - result_resource: resource URI containing the job output, if produced
+            - error: error description when failed or unknown
+            - metadata: any job-specific metadata stored at creation time
+            - ok: boolean convenience flag (false when FAILED, CANCELLED, or UNKNOWN)
+    """
     return krpc_docs.get_job_status_impl(job_id=job_id)
 
 
+
 @mcp.tool()
-@wraps(krpc_docs.cancel_job_impl)
 def cancel_job(job_id: str, reason: str | None = None) -> str:
+    """
+    Request cancellation of a running background job (if supported).
+
+    When to use:
+        - Abort a long-running job that is no longer needed or must stop for safety reasons. Follow up by reverting/loading the appropriate checkpoint before proceeding.
+
+    Returns:
+        JSON: { ok: bool, message: str }
+    """
     return krpc_docs.cancel_job_impl(job_id=job_id, reason=reason)
 
 
 @mcp.tool()
-@wraps(ksp_wiki.search_ksp_wiki_impl)
 def search_ksp_wiki(query: str, limit: int = 10) -> str:
+    """
+    Search the KSP Wiki (English) and return the top results.
+    When to use:
+        - Gather background on KSP mechanics, parts, or gameplay concepts.
+
+    Args:
+        query: Search query text
+        limit: Max results to return (default 10)
+    Returns:
+        Newline-delimited items: "- Title — URL" with a short snippet below.
+    """
     return ksp_wiki.search_ksp_wiki_impl(query=query, limit=limit)
 
 
+
 @mcp.tool()
-@wraps(ksp_wiki.get_ksp_wiki_page_impl)
 def get_ksp_wiki_page(title: str, max_chars: int = 5000) -> str:
+    """
+    Fetch a KSP Wiki page in plain text (English).
+    When to use:
+        - Read a complete article for deeper context or guidance.
+
+    Args:
+        title: Page title (e.g., "Delta-v")
+        max_chars: Truncate returned text to this many characters (default 5000)
+    Returns:
+        Title, canonical URL, and plain text (truncated).
+    """
     return ksp_wiki.get_ksp_wiki_page_impl(title=title, max_chars=max_chars)
 
 
+
 @mcp.tool()
-@wraps(ksp_wiki.get_ksp_wiki_section_impl)
 def get_ksp_wiki_section(title: str, heading: str, max_chars: int = 3000) -> str:
+    """
+    Fetch a specific section from a KSP Wiki page (English).
+    When to use:
+        - Retrieve a focused subsection (e.g., a usage guide) quickly.
+
+    Args:
+        title: Page title (e.g., "Maneuver node")
+        heading: Section heading to fetch (case-insensitive)
+        max_chars: Max characters to return (default 3000)
+    Returns:
+        Title + section heading + canonical URL and the section text, or a not-found message.
+    """
     return ksp_wiki.get_ksp_wiki_section_impl(title=title, heading=heading, max_chars=max_chars)
 
 
+
 @mcp.tool()
-@wraps(snippets.snippets_search_impl)
 def snippets_search(query: str, k: int = 10, mode: str = "keyword", and_logic: bool = False, category: str | None = None, exclude_restricted: bool = False, rerank: bool = False) -> str:
+    """
+    Search the snippet library.
+
+    Args:
+      query: free-text query
+      k: number of results
+      mode: 'keyword' or 'hybrid'
+      and_logic: when true, use AND semantics for keyword token combination
+      category: optional category filter
+      exclude_restricted: exclude GPL/AGPL/LGPL when true
+      rerank: re-score Top-M with an LLM (when available) in hybrid mode
+    Returns:
+      JSON: { items: [...], source: {...} }
+    """
     return snippets.snippets_search_impl(query=query, k=k, mode=mode, and_logic=and_logic, category=category, exclude_restricted=exclude_restricted, rerank=rerank)
 
 
 @mcp.tool()
-@wraps(snippets.snippets_get_impl)
 def snippets_get(id: str, include_code: bool = False) -> str:
+    """
+    Search the snippet library.
+
+    Args:
+      query: free-text query
+      k: number of results
+      mode: 'keyword' or 'hybrid'
+      and_logic: when true, use AND semantics for keyword token combination
+      category: optional category filter
+      exclude_restricted: exclude GPL/AGPL/LGPL when true
+      rerank: re-score Top-M with an LLM (when available) in hybrid mode
+    Returns:
+      JSON: { items: [...], source: {...} }
+    """
     return snippets.snippets_get_impl(id=id, include_code=include_code)
 
 
 @mcp.tool()
-@wraps(snippets.snippets_resolve_impl)
 def snippets_resolve(id: str | None = None, name: str | None = None, max_bytes: int = 25000, max_nodes: int = 25) -> str:
+    """
+    Resolve a snippet (by id or module.qualname) into a paste-ready bundle including dependencies.
+
+    Returns JSON: { ok, bundle_code?, include_ids?, unresolved?, truncated?, stats? }.
+    """
     return snippets.snippets_resolve_impl(id=id, name=name, max_bytes=max_bytes, max_nodes=max_nodes)
 
 
+
 @mcp.tool()
-@wraps(snippets.snippets_search_and_resolve_impl)
 def snippets_search_and_resolve(query: str, k: int = 10, mode: str = "hybrid", rerank: bool = False, and_logic: bool = False, category: str | None = None, exclude_restricted: bool = False, max_bytes: int = 25000, max_nodes: int = 25) -> str:
+    """
+    Search and resolve top-1 result into a code bundle.
+
+    Returns JSON with top result metadata and bundle fields.
+    """
     return snippets.snippets_search_and_resolve_impl(query=query, k=k, mode=mode, rerank=rerank, and_logic=and_logic, category=category, exclude_restricted=exclude_restricted, max_bytes=max_bytes, max_nodes=max_nodes)
 
 
 @mcp.resource("resource://snippets/usage")
-@wraps(snippets.get_snippets_usage_impl)
 def get_snippets_usage() -> str:
     return snippets.get_snippets_usage_impl()
+

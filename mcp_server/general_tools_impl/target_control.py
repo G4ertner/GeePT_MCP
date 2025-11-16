@@ -32,6 +32,11 @@ def set_target_body(address: str, body_name: str, rpc_port: int = 50000, stream_
         return f"Target body set to {getattr(b, 'name', body_name)}."
     except Exception as e:
         return f"Failed to set target body: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def set_target_vessel(address: str, vessel_name: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -72,6 +77,11 @@ def set_target_vessel(address: str, vessel_name: str, rpc_port: int = 50000, str
         return f"Target vessel set to {target.name}."
     except Exception as e:
         return f"Failed to set target vessel: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def clear_target(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -99,4 +109,10 @@ def clear_target(address: str, rpc_port: int = 50000, stream_port: int = 50001, 
         cleared += 1
     except Exception:
         pass
-    return "Cleared target." if cleared else "No target to clear."
+    try:
+        return "Cleared target." if cleared else "No target to clear."
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

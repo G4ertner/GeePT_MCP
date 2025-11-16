@@ -18,7 +18,13 @@ def get_power_status(address: str, rpc_port: int = 50000, stream_port: int = 500
       consumers: { wheels?, antennas?, lights? }, notes?: [..] }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.power_status(conn))
+    try:
+        return json.dumps(readers.power_status(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def get_resource_breakdown(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -32,4 +38,10 @@ def get_resource_breakdown(address: str, rpc_port: int = 50000, stream_port: int
       JSON: { vessel_totals: {Resource: {amount, max}}, stage_totals: {…}, current_stage }.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    return json.dumps(readers.resource_breakdown(conn))
+    try:
+        return json.dumps(readers.resource_breakdown(conn))
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

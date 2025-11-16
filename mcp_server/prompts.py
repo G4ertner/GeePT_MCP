@@ -39,7 +39,7 @@ def _register_master_prompt() -> None:
             # Use the decorator programmatically to avoid import-time failures
             register(
                 "scribe_master",
-                description="System primer for kRPC MCP agent (read first)",
+                description="System primer for GeePT MCP agent (read first)",
             )(lambda: _load_master_prompt())
         except Exception:
             # If prompt registration fails, the resource remains available.

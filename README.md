@@ -1,4 +1,4 @@
-# KSP Mission‑Control Protocol (MCP) Server
+# GeePT MCP — Kerbal Mission Command Protocol
 
 ![Kerbal mission chaos](readme-banner.png)
 
@@ -9,7 +9,7 @@
 
 You always dreamed of having an agent autonomously control your spaceship? No more need to fly boring standard maneuvers like ascent to orbit, rendezvous, landings? Let the AI do them! 
 
-The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Program into a remote‑controlled playground for AI agents and human operators.  By combining [kRPC](https://krpc.github.io/krpc/) with a rich set of mission tools, it lets your LLM:
+The **GeePT MCP (Kerbal Mission Command Protocol)** transforms Kerbal Space Program into a remote‑controlled playground for AI agents and human operators.  By combining [kRPC](https://krpc.github.io/krpc/) with a rich set of mission tools, it lets your LLM:
 
 - write and execute kRPC Python scripts inside your live KSP game, effectively taking control of your flight*.
 - Inspect your vessel’s blueprint, part tree, stages and engines, to have an overview of what kind of bent bird you're flying.
@@ -26,8 +26,8 @@ The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Prog
 
    ```sh
    # Clone the repository
-   git clone https://github.com/G4ertner/kRPC_docs_MCP.git
-   cd kRPC_docs_MCP
+   git clone https://github.com/G4ertner/geept_mcp.git
+   cd geept_mcp
 
    # Use uv to run the MCP server
    curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
@@ -91,7 +91,7 @@ The `execute_script` tool allows your LLM to run kRPC Python code against your r
 - a preconfigured `logging` module and a `log(msg)` convenience function
 - A status summary of flight variables after successful execution or catastrophic failure
 
-Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step. For burns that need more than ~60 s of supervision, use `start_execute_script_job` instead: it streams stdout/stderr into `get_job_status`, lets you alternate those polls with `get_status_overview`/`get_flight_snapshot`, and can be aborted instantly via `cancel_job(job_id)` if telemetry goes sideways.
+Additionally, the game will automatically pause after the execution of each script, ensuring that nothing unforeseen happens while your LLM keeps on planning the next step. For burns that need more than ~60 s of supervision, use `start_execute_script_job` instead: it streams stdout/stderr into `get_job_status`, lets you alternate those polls with `get_status_overview`/`get_flight_snapshot`, and can be aborted instantly via `cancel_job(job_id)` if telemetry goes sideways. If the rocket disintegrates or you revert while the job is running, the runner now notices the missing `active_vessel`, aborts immediately, and returns `ok=false` so you can treat the crash as a failure instead of spinning forever.
 
 ### 🛠️ Vessel blueprints & diagrams
 
@@ -169,9 +169,11 @@ On top of that, the MCP server comes with a whole set of hardcoded tools your LL
 
 #### 🛩️ Flight & Control
 - `get_flight_snapshot` — Flight parameters (altitude, speeds, AoA, attitude).
-- `get_attitude_status` — SAS/RCS/throttle and autopilot targets.
+- `get_attitude_status` — SAS/RCS/throttle, SAS mode, and autopilot targets.
+- `set_sas_mode` — Enable SAS and pick navball hold mode (prograde/retrograde/etc.).
 - `get_action_groups_status` — Action group toggles.
 - `get_camera_status` — Camera mode and parameters.
+- `get_screenshot` — Captures a PNG screenshot (localhost-only) and returns base64 + a reusable resource URI.
 
 #### 🌬️ Aerodynamics & Engines
 - `get_aero_status` — Dynamic pressure, Mach, density, drag/lift.

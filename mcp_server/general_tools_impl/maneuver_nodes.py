@@ -44,6 +44,7 @@ def set_maneuver_node(address: str, ut: float, prograde: float = 0.0, normal: fl
 
     When to use:
       - Apply a proposed burn from compute_* helpers to the game.
+      - LLM: After creating the node, set SAS to target via set_sas_mode before executing the burn.
 
     Args:
       ut: Universal time for the node
