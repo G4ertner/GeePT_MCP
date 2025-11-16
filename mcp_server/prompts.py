@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .server import mcp
+from .mcp_context import mcp
 
 
 MASTER_PROMPT_FILE = "SCRIBE_Master_Prompt_KSP_MCP.md"

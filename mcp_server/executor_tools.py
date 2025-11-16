@@ -1,20 +1,30 @@
 from __future__ import annotations
 
-import io
-import json
-import os
-import re
 import sys
-import tempfile
-import subprocess
-from pathlib import Path
-from typing import Any, Dict
 
-from .server import mcp
+from .mcp_context import mcp
+from .executor_impl.core import (
+    execute_script_impl,
+    start_execute_script_job_impl,
+    _run_execute_script as core_run_execute_script,
+)
 
-from .krpc.client import KRPCConnectionError, connect_to_game  # re-exported in docs
-from .krpc import readers
-from .executors.parsers import split_stdout_and_meta, parse_summary, extract_error_from_stderr
+# Import implementation modules so their resources are registered
+from .executor_impl import job_artifacts as _job_artifacts
+from .executor_impl import job_tools as _job_tools
+from .executor_impl import jobs as _jobs
+from .executor_impl import script_jobs as _script_jobs
+
+# Expose implementation modules under the historical mcp_server.executor_tools.*
+job_artifacts = _job_artifacts
+job_tools = _job_tools
+jobs = _jobs
+script_jobs = _script_jobs
+
+sys.modules[__name__ + ".job_artifacts"] = _job_artifacts
+sys.modules[__name__ + ".job_tools"] = _job_tools
+sys.modules[__name__ + ".jobs"] = _jobs
+sys.modules[__name__ + ".script_jobs"] = _script_jobs
 
 
 @mcp.tool()
@@ -31,264 +41,52 @@ def execute_script(
     allow_imports: bool = False,
     hard_timeout_sec: float | None = None,
 ) -> str:
-    """
-    Execute a Python script against the running kRPC game with automatic connection and helpers.
-
-    When to use:
-      - Run short, deterministic mission steps with logging and a final SUMMARY block.
-
-    Script Contract:
-      - Do NOT import kRPC or connect manually (unless you set allow_imports=True).
-      - Injected globals: `conn`, `vessel` (may be None), `time`, `math`, `sleep(s)`, `deadline`, `check_time()`, `logging`, and `log(msg)`.
-      - Use standard `print()` and/or Python `logging` (both are captured). Imports are disabled by default, but `logging` is pre-injected and allowed.
-      - Always include a `SUMMARY:` block at the end (a single line or a block starting with `SUMMARY:`) so the agent can quickly understand outcomes.
-      - Use bounded loops and call `check_time()` periodically; the runner enforces a hard wall-time timeout.
-
-    Args:
-      code: Python source string to execute
-      address/rpc_port/stream_port/name: kRPC connection settings
-      timeout_sec: Soft deadline (seconds) injected into the script via check_time().
-                  Use None/<=0 to disable the soft deadline.
-      unpause_on_start: Best-effort unpause on start to ensure simulation runs
-      pause_on_end: Attempt to pause KSP when finished (best-effort; may be None)
-      allow_imports: Permit `import` statements inside the script (default false)
-      hard_timeout_sec: Parent watchdog (seconds). If set, the MCP process will kill the
-                        script runner after this time. None disables the hard timeout.
-
-    Returns:
-      JSON: {
-        ok: bool,
-        summary: str|null,
-        transcript: str,          // combined stdout + stderr so crashes are visible
-        stdout: str,              // raw stdout only
-        stderr: str,              // raw stderr only (tracebacks, etc.)
-        error: {type,message,line?,traceback?}|null,
-        paused: bool|null,
-        unpaused: bool|null,
-        timing: {exec_time_s},
-        pre_pause_flight: {...}|null,  // snapshot just before pausing (has non-zero speeds)
-        follow_up?: {                 // when ok=false, guidance for next step
-          suggest_get_diagnostics: true,
-          message: string,            // human-readable hint
-          tool: "get_diagnostics",
-          params: { address, rpc_port, stream_port, name }
-        },
-        code_stats: {line_count, has_imports}
-      }
-
-    Operational behavior:
-      - On start: best-effort unpause (unpause_on_start=true by default) so physics runs.
-      - On end (success, failure, or exception): best-effort pause; includes `pre_pause_flight`
-        with velocities sampled immediately before pausing so speeds are informative.
-      - Soft timeout: your script should call `check_time()` inside loops; on TimeoutError
-        the runner pauses and returns `ok=false` with `pre_pause_flight`.
-      - Hard timeout: if `hard_timeout_sec` elapses, the parent kills the runner, pauses the
-        game, and returns a minimal `diagnostics` block plus a `follow_up` hint to call
-        `get_diagnostics` for a rich snapshot while the game is paused.
-
-    Recommended pattern after any failure/timeout:
-      - If `ok=false` OR you need deeper insight, immediately call `get_diagnostics` with the
-        provided params in `follow_up` to retrieve a comprehensive paused-state snapshot.
-
-    Notes:
-      - `vessel` may be None depending on the scene (e.g., KSC/Tracking Station). Guard accordingly.
-      - `pause_on_end` is best-effort and may be None on some kRPC versions.
-      - The `transcript` includes stderr so exceptions are visible alongside prints/logs.
-    """
-    # Prepare temporary workspace
-    with tempfile.TemporaryDirectory(prefix="krpc_exec_") as tmp:
-        code_file = Path(tmp) / "user_code.py"
-        code_file.write_text(code, encoding="utf-8")
-
-        cfg = {
-            "code_path": str(code_file),
-            "address": address,
-            "rpc_port": int(rpc_port),
-            "stream_port": int(stream_port),
-            "name": name,
-            "timeout_sec": (None if (timeout_sec is None or float(timeout_sec) <= 0) else float(timeout_sec)),
-            "allow_imports": bool(allow_imports),
-            "pause_on_end": bool(pause_on_end),
-            "unpause_on_start": bool(unpause_on_start),
-        }
-
-        # Spawn runner in a separate Python subprocess to isolate execution
-        try:
-            py = sys.executable or "python"
-        except Exception:
-            py = "python"
-
-        cmd = [py, "-m", "mcp_server.executors.runner", json.dumps(cfg)]
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=tmp,
-                text=True,
-            )
-        except Exception as e:
-            return json.dumps({
-                "ok": False,
-                "summary": None,
-                "transcript": "",
-                "stdout": "",
-                "stderr": str(e),
-                "error": {"type": type(e).__name__, "message": str(e)},
-                "paused": None,
-                "timing": {"exec_time_s": None},
-                "code_stats": {
-                    "line_count": code.count("\n") + 1,
-                    "has_imports": bool(re.search(r"^\s*(from|import)\b", code, re.M)),
-                },
-            })
-
-        try:
-            if hard_timeout_sec is not None and float(hard_timeout_sec) > 0:
-                out, err = proc.communicate(timeout=float(hard_timeout_sec))
-            else:
-                # No hard timeout: wait until the runner exits
-                out, err = proc.communicate()
-        except subprocess.TimeoutExpired:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            # Attempt to collect best-effort diagnostics from the live game to help the LLM debug timeouts.
-            # Keep this lightweight to return well under upstream 60s tool-call caps.
-            diagnostics: Dict[str, Any] | None = None
-            try:
-                conn = connect_to_game(
-                    address,
-                    rpc_port=int(rpc_port),
-                    stream_port=int(stream_port),
-                    name=name,
-                    timeout=3.0,
-                )
-                pre_flight = None
-                try:
-                    pre_flight = readers.flight_snapshot(conn)
-                except Exception:
-                    pre_flight = None
-                # Pause first to freeze the scene; we already captured pre-pause speeds above.
-                try:
-                    _best_effort_pause(conn)
-                except Exception:
-                    pass
-                # Minimal snapshot that is fast but informative
-                diagnostics = {
-                    "vessel": readers.vessel_info(conn),
-                    "time": readers.time_status(conn),
-                    "pre_pause_flight": pre_flight,
-                }
-            except Exception as e:
-                diagnostics = {"note": f"diagnostics unavailable: {type(e).__name__}"}
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            
-            return json.dumps({
-                "ok": False,
-                "summary": None,
-                "transcript": "",  # interrupted
-                "stdout": "",
-                "stderr": "TimeoutExpired: hard timeout reached; process killed",
-                "error": {"type": "TimeoutError", "message": "Hard timeout reached"},
-                "paused": None,
-                "timing": {"exec_time_s": (float(hard_timeout_sec) if hard_timeout_sec else None)},
-                "diagnostics": diagnostics,
-                "follow_up": {
-                    "suggest_get_diagnostics": True,
-                    "message": "Hint: call get_diagnostics to capture a rich paused-state snapshot and investigate why the script failed or timed out.",
-                    "tool": "get_diagnostics",
-                    "params": {
-                        "address": address,
-                        "rpc_port": int(rpc_port),
-                        "stream_port": int(stream_port),
-                        "name": name,
-                    }
-                },
-                "code_stats": {
-                    "line_count": code.count("\n") + 1,
-                    "has_imports": bool(re.search(r"^\s*(from|import)\b", code, re.M)),
-                },
-            })
+    return execute_script_impl(
+        code=code,
+        address=address,
+        rpc_port=rpc_port,
+        stream_port=stream_port,
+        name=name,
+        timeout_sec=timeout_sec,
+        pause_on_end=pause_on_end,
+        unpause_on_start=unpause_on_start,
+        allow_imports=allow_imports,
+        hard_timeout_sec=hard_timeout_sec,
+    )
 
 
-        # Strip internal meta from stdout
-        transcript_out, meta = split_stdout_and_meta(out or "")
-        summary = parse_summary(transcript_out)
-        # Combine stderr into transcript so the agent sees exceptions/crashes inline
-        transcript = transcript_out + (("\n" + err) if err else "")
-
-        # Error parsing
-        error_obj = None
-        if proc.returncode and err:
-            error_obj = extract_error_from_stderr(err)
-
-        result: Dict[str, Any] = {
-            "ok": bool(meta.get("ok") if isinstance(meta, dict) else (proc.returncode == 0)),
-            "summary": summary,
-            "transcript": transcript,
-            "stdout": transcript_out,
-            "stderr": err or "",
-            "error": error_obj,
-            "paused": (meta.get("paused") if isinstance(meta, dict) else None),
-            "unpaused": (meta.get("unpaused") if isinstance(meta, dict) else None),
-            "timing": {"exec_time_s": (meta.get("exec_time_s") if isinstance(meta, dict) else None)},
-            "pre_pause_flight": (meta.get("pre_pause_flight") if isinstance(meta, dict) else None),
-            "code_stats": {
-                "line_count": code.count("\n") + 1,
-                "has_imports": bool(re.search(r"^\s*(from|import)\b", code, re.M)),
-            },
-        }
-        # Hint: when a script fails or times out, suggest calling get_diagnostics to inspect game state
-        try:
-            if not result["ok"]:
-                result["follow_up"] = {
-                    "suggest_get_diagnostics": True,
-                    "message": "Hint: call get_diagnostics to capture a rich paused-state snapshot and investigate why the script failed or timed out.",
-                    "tool": "get_diagnostics",
-                    "params": {
-                        "address": address,
-                        "rpc_port": int(rpc_port),
-                        "stream_port": int(stream_port),
-                        "name": name,
-                    }
-                }
-        except Exception:
-            pass
-        return json.dumps(result)
+execute_script.__doc__ = execute_script_impl.__doc__
 
 
-def _best_effort_pause(conn):
-    """Internal pause helper, mirrors runner/tool logic."""
-    try:
-        cur = bool(conn.krpc.paused)
-        if not cur:
-            conn.krpc.paused = True
-        return True
-    except Exception:
-        pass
-    try:
-        sc = conn.space_center
-    except Exception:
-        return None
-    for attr in ("set_pause", "set_paused", "pause"):
-        try:
-            fn = getattr(sc, attr, None)
-            if callable(fn):
-                fn(True)
-                return True
-        except Exception:
-            continue
-    for attr in ("paused", "is_paused"):
-        try:
-            if hasattr(sc, attr):
-                setattr(sc, attr, True)
-                return True
-        except Exception:
-            continue
-    return None
+@mcp.tool()
+def start_execute_script_job(
+    code: str,
+    address: str,
+    rpc_port: int = 50000,
+    stream_port: int = 50001,
+    name: str | None = None,
+    *,
+    timeout_sec: float | None = None,
+    pause_on_end: bool = True,
+    unpause_on_start: bool = True,
+    allow_imports: bool = False,
+    hard_timeout_sec: float | None = None,
+) -> str:
+    return start_execute_script_job_impl(
+        code=code,
+        address=address,
+        rpc_port=rpc_port,
+        stream_port=stream_port,
+        name=name,
+        timeout_sec=timeout_sec,
+        pause_on_end=pause_on_end,
+        unpause_on_start=unpause_on_start,
+        allow_imports=allow_imports,
+        hard_timeout_sec=hard_timeout_sec,
+    )
+
+
+start_execute_script_job.__doc__ = start_execute_script_job_impl.__doc__
+
+# Expose the low-level runner for tests (monkeypatched in unit tests)
+_run_execute_script = core_run_execute_script

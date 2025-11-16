@@ -12,9 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-scrape-krpc-docs = "scripts.scrape_krpc_docs:main"
 krpc-mcp = "mcp_server.main:main"
-krpc-snippets = "krpc_snippets.cli:main"
 
 [project.optional-dependencies]
 scrape = [
@@ -43,8 +41,6 @@ packages = { find = { include = [
   "krpc_index.*",
   "mcp_server",
   "mcp_server.*",
-  "krpc_snippets",
-  "krpc_snippets.*",
 ], exclude = [
   "data",
   "data.*",

@@ -39,9 +39,9 @@ jobs:
       - name: Build keyword index (if missing)
         run: |
           . .venv/bin/activate
-          SN=krpc-snippets/data/snippets_enriched.jsonl
-          [ -f "$SN" ] || SN=krpc-snippets/data/snippets_extracted.jsonl
-          IDX=krpc-snippets/data/keyword_index.json
+          SN=data/krpc-snippets/snippets_enriched.jsonl
+          [ -f "$SN" ] || SN=data/krpc-snippets/snippets_extracted.jsonl
+          IDX=data/krpc-snippets/keyword_index.json
           if [ ! -f "$IDX" ]; then
             uv --directory . run python krpc-snippets/scripts/search_keyword.py build --in "$SN" --out "$IDX"
           fi
@@ -51,37 +51,37 @@ jobs:
           . .venv/bin/activate
           uv --directory . run python krpc-snippets/scripts/eval_retrieval.py \
             --queries krpc-snippets/eval/queries.jsonl \
-            --snippets krpc-snippets/data/snippets_enriched.jsonl \
-            --index krpc-snippets/data/keyword_index.json \
+            --snippets data/krpc-snippets/snippets_enriched.jsonl \
+            --index data/krpc-snippets/keyword_index.json \
             --mode keyword --k 10 --min-top3 0.6 --min-ndcg10 0.6 \
-            --report krpc-snippets/data/eval_keyword.json
+            --report data/krpc-snippets/eval_keyword.json
 
       - name: License audit
         run: |
           . .venv/bin/activate
           uv --directory . run python krpc-snippets/scripts/audit_licenses.py \
-            --snippets krpc-snippets/data/snippets_enriched.jsonl \
+            --snippets data/krpc-snippets/snippets_enriched.jsonl \
             --fail-on-unknown --fail-on-mismatch \
-            --report krpc-snippets/data/license_audit.ci.json
+            --report data/krpc-snippets/license_audit.ci.json
 
       - name: Bench (non-gating)
         run: |
           . .venv/bin/activate
           uv --directory . run python krpc-snippets/scripts/bench_search.py \
             --queries krpc-snippets/eval/queries.jsonl \
-            --snippets krpc-snippets/data/snippets_enriched.jsonl \
-            --index krpc-snippets/data/keyword_index.json \
+            --snippets data/krpc-snippets/snippets_enriched.jsonl \
+            --index data/krpc-snippets/keyword_index.json \
             --mode keyword --iters 25 --warmup 5 --k 5 \
-            --report krpc-snippets/data/bench_keyword.json || true
+            --report data/krpc-snippets/bench_keyword.json || true
 
       - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
           name: reports
           path: |
-            krpc-snippets/data/eval_keyword.json
-            krpc-snippets/data/license_audit.ci.json
-            krpc-snippets/data/bench_keyword.json
+            data/krpc-snippets/eval_keyword.json
+            data/krpc-snippets/license_audit.ci.json
+            data/krpc-snippets/bench_keyword.json
 
       - name: MCP server import smoke
         run: |
@@ -91,7 +91,7 @@ import importlib
 import sys
 try:
     import mcp_server.main  # noqa: F401
-    import mcp_server.snippets_tools  # noqa: F401
+    import mcp_server.libraries  # noqa: F401
     print('ok')
 except Exception as e:
     print('MCP import failed:', e)
