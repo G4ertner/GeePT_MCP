@@ -1,6 +1,6 @@
-# **Project Implementation Plan: kRPC MCP Server for KSP Autonomous Agent**
+# **Project Implementation Plan: GeePT MCP (Kerbal Mission Command Protocol) for KSP Autonomous Agent**
 
-This document outlines the **step-by-step project plan** for building, testing, and deploying the **MCP server that enables AI-controlled mission execution in Kerbal Space Program (KSP)**.  
+This document outlines the **step-by-step project plan** for building, testing, and deploying the **GeePT MCP (Kerbal Mission Command Protocol) server that enables AI-controlled mission execution in Kerbal Space Program (KSP)**.  
 It includes **technical milestones**, **automated and manual test plans**, and **status indicators** for tracking progress.
 
 ---
@@ -8,7 +8,7 @@ It includes **technical milestones**, **automated and manual test plans**, and *
 ## ✅ **Phase 0 — Current State & Context (Completed)**
 
 ### Summary of Achievements
-- The project repository **`G4ertner/kRPC_docs_MCP`** is set up and integrated with `uv` for dependency management.
+- The project repository **`G4ertner/geept_mcp`** is set up and integrated with `uv` for dependency management.
 - Core MCP server structure has been implemented with:
   - **mcp_server/** package containing `main.py`, `server.py`, and supporting modules.
   - **Wiki client** for querying the **KSP wiki** and **kRPC documentation**.
@@ -326,7 +326,7 @@ Implementation Plan (deferred)
 1) Decide capture method (prefer custom kRPC plugin; otherwise, OS capture + shared folder).
 2) MCP: add a screenshots resource namespace and `take_screenshot` tool that returns a resource URI.
 3) Optional: add a `list_screenshots(limit=N)` tool to browse recent images.
-4) For CLI/testing: also save the PNG under `krpc-docs/screenshots/` and return the path + metadata.
+4) For CLI/testing: also save the PNG under `geept-mcp/screenshots/` and return the path + metadata.
 
 Risk & Mitigation
 - Network/file-permissions for shared-folder approach → document required permissions and path mapping.
@@ -336,7 +336,7 @@ Risk & Mitigation
 ### **Appendix A — Proposed Directory Structure**
 
 ```
-kRPC_docs_MCP/
+geept_mcp/
 ├─ mcp_server/
 │  ├─ __init__.py
 │  ├─ main.py

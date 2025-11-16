@@ -1,5 +1,5 @@
 [project]
-name = "krpc-docs"
+name = "geept-mcp"
 version = "0.1.0"
 description = "Scraper and dataset builder for kRPC Python docs"
 readme = "README.md"

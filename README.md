@@ -1,4 +1,4 @@
-# KSP Mission‑Control Protocol (MCP) Server
+# GeePT MCP — Kerbal Mission Command Protocol
 
 ![Kerbal mission chaos](readme-banner.png)
 
@@ -9,7 +9,7 @@
 
 You always dreamed of having an agent autonomously control your spaceship? No more need to fly boring standard maneuvers like ascent to orbit, rendezvous, landings? Let the AI do them! 
 
-The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Program into a remote‑controlled playground for AI agents and human operators.  By combining [kRPC](https://krpc.github.io/krpc/) with a rich set of mission tools, it lets your LLM:
+The **GeePT MCP (Kerbal Mission Command Protocol)** transforms Kerbal Space Program into a remote‑controlled playground for AI agents and human operators.  By combining [kRPC](https://krpc.github.io/krpc/) with a rich set of mission tools, it lets your LLM:
 
 - write and execute kRPC Python scripts inside your live KSP game, effectively taking control of your flight*.
 - Inspect your vessel’s blueprint, part tree, stages and engines, to have an overview of what kind of bent bird you're flying.
@@ -26,8 +26,8 @@ The **KSP Mission‑Control Protocol (MCP) server** transforms Kerbal Space Prog
 
    ```sh
    # Clone the repository
-   git clone https://github.com/G4ertner/kRPC_docs_MCP.git
-   cd kRPC_docs_MCP
+   git clone https://github.com/G4ertner/geept_mcp.git
+   cd geept_mcp
 
    # Use uv to run the MCP server
    curl -LsSf https://astral.sh/uv/install.sh | sh  # install uv
