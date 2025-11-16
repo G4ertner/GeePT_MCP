@@ -116,7 +116,7 @@ def start_execute_script_job(
     )
 
 
-start_execute_script_job.__doc__ = start_execute_script_job_impl.__doc__
+
 
 # Expose the low-level runner for tests (monkeypatched in unit tests)
 _run_execute_script = core_run_execute_script

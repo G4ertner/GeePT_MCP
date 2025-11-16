@@ -197,8 +197,6 @@ Returns:
 
 
 @mcp.tool()
-
-
 def get_attitude_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Attitude/control state for the active vessel.
 
@@ -225,8 +223,6 @@ Returns:
 
 
 @mcp.tool()
-
-
 def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Active camera parameters when available: mode, pitch, heading, distance, and limits.
 
@@ -254,13 +250,14 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
 def get_screenshot(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, *, scale: int = 1) -> str:
     """Capture a PNG screenshot of the current scene and return it as base64 along with file metadata.
 
-Notes:
-  - Requires the MCP server and KSP to run on the same PC (localhost/127.0.0.1/::1) so the saved file is accessible.
+    Notes:
+      - Requires the MCP server and KSP to run on the same PC (localhost/127.0.0.1/::1) so the saved file is accessible.
+      - LLM: After calling, fetch/render the returned resource URI (or resource://screenshots/latest) via read_resource/view_image so you actually see the image in chat.
 
-Args:
-  scale: Resolution scaling factor forwarded to SpaceCenter.screenshot (1-4).
+    Args:
+      scale: Resolution scaling factor forwarded to SpaceCenter.screenshot (1-4).
 
-Returns:
+    Returns:
   JSON: { ok, filename, saved_path, resource_uri, scale, captured_at, image: { mime, data_base64 } } or { error }."""
     return screenshots.get_screenshot(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, scale=scale)
 
@@ -616,6 +613,19 @@ Returns:
 
 @mcp.tool()
 def warp_to(address: str, ut: float, lead_time_s: float = 0.0, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """
+    Best‑effort warp‑to.
+
+    When to use:
+      - Warp to a node or event time with optional lead time.
+
+    Args:
+      ut: Target universal time to arrive at
+      lead_time_s: Seconds to arrive before UT (e.g., half burn time)
+
+    Returns:
+      Human‑readable status string, or a message if unsupported.
+    """
     return maneuver_nodes.warp_to(address=address, ut=ut, lead_time_s=lead_time_s, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
@@ -759,6 +769,17 @@ def resource_get_screenshot_file(filename: str):
 
 @mcp.tool()
 def export_blueprint_diagram(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, *, format: str = 'svg', out_dir: str | None = None) -> str:
+    """Export a 2D vessel blueprint diagram (SVG/PNG) and expose it as a resource.
+
+    Notes:
+      - Saves the diagram under artifacts/blueprints and returns a resource URI so the LLM can fetch/view it.
+      - Use format 'svg' (default) or 'png'; png requires Pillow installed.
+      - After calling, load the returned resource URI (or resource://blueprints/last-diagram.svg|.png) via read_resource/view_image to see the image in chat.
+
+    Args:
+      format: 'svg' or 'png'
+      out_dir: Optional output directory; defaults to artifacts/blueprints
+    """
     return blueprints.export_blueprint_diagram(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, format=format, out_dir=out_dir)
 
 @mcp.resource("resource://blueprints/latest")

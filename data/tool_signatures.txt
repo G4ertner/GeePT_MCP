@@ -615,3 +615,18 @@ Args:
 
 Returns:
   Human‑readable status string, or a message if unsupported.
+
+## get_screenshot
+Signature: (address: 'str', rpc_port: 'int' = 50000, stream_port: 'int' = 50001, name: 'str | None' = None, timeout: 'float' = 5.0, scale: 'int' = 1) -> 'str'
+Docstring:
+Capture a PNG screenshot of the current scene and return it as base64 along with file metadata.
+
+Notes:
+  - Requires the MCP server and KSP to run on the same PC (localhost/127.0.0.1/::1) so the saved file is accessible.
+  - LLM: After calling, fetch/render the returned resource URI (or resource://screenshots/latest) via read_resource/view_image so you actually see the image in chat.
+
+Args:
+  scale: Resolution scaling factor forwarded to SpaceCenter.screenshot (1-4).
+
+Returns:
+  JSON: { ok, filename, saved_path, resource_uri, scale, captured_at, image: { mime, data_base64 } } or { error }.
