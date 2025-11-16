@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 
 from ..utils.krpc_utils import readers
-from ..utils.krpc_helpers import open_connection
+from ..utils.krpc_helpers import (
+    best_effort_pause,
+    best_effort_paused_state,
+    best_effort_unpause,
+    open_connection,
+)
 
 
 def list_maneuver_nodes(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -146,20 +151,39 @@ def warp_to(address: str, ut: float, lead_time_s: float = 0.0, rpc_port: int = 5
       Human‑readable status string, or a message if unsupported.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
-    sc = conn.space_center
-    tgt = ut - max(0.0, lead_time_s)
+    paused_before = best_effort_paused_state(conn)
+    if paused_before is True:
+        try:
+            best_effort_unpause(conn)
+        except Exception:
+            pass
     try:
-        fn = getattr(sc, 'warp_to', None)
-        if callable(fn):
-            fn(tgt)
-            return f"Warping to UT {tgt:.2f}"
-    except Exception:
-        pass
-    try:
-        tw = getattr(sc, 'warp', None)
-        if tw is not None and hasattr(tw, 'warp_to'):
-            tw.warp_to(tgt)
-            return f"Warping to UT {tgt:.2f}"
-    except Exception:
-        pass
-    return "warp_to not supported by this kRPC client/server."
+        sc = conn.space_center
+        tgt = ut - max(0.0, lead_time_s)
+        try:
+            fn = getattr(sc, "warp_to", None)
+            if callable(fn):
+                fn(tgt)
+                return f"Warping to UT {tgt:.2f}"
+        except Exception:
+            pass
+        try:
+            tw = getattr(sc, "warp", None)
+            if tw is not None and hasattr(tw, "warp_to"):
+                tw.warp_to(tgt)
+                return f"Warping to UT {tgt:.2f}"
+        except Exception:
+            pass
+        return "warp_to not supported by this kRPC client/server."
+    except Exception as exc:
+        return f"Failed to warp: {exc}"
+    finally:
+        if paused_before is True:
+            try:
+                best_effort_pause(conn)
+            except Exception:
+                pass
+        try:
+            conn.close()
+        except Exception:
+            pass

@@ -81,3 +81,58 @@ def get_time_status(address: str, rpc_port: int = 50000, stream_port: int = 5000
             conn.close()
         except Exception:
             pass
+
+
+def set_timewarp_rate(address: str, rate: float, mode: str | None = None, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """
+    Adjust the current timewarp rate (and optionally the warp mode).
+
+    When to use:
+      - Change how fast the simulation advances when waiting on long events.
+      - Reset the warp speed after a fire-and-forget warp_to call.
+
+    Args:
+      rate: Desired timewarp rate; 1.0 is realtime, >1 is warp, 0 stops time.
+      mode: Optional warp mode name ('physics', 'rails', 'none').
+
+    Returns:
+      Human-readable status string describing the result."""
+    conn = open_connection(address, rpc_port, stream_port, name, timeout)
+    try:
+        sc = conn.space_center
+        tw = getattr(sc, "warp", None)
+        if tw is None:
+            return "Timewarp controls are not supported by this kRPC client."
+
+        if mode is not None:
+            warp_mode_enum = getattr(sc, "WarpMode", None)
+            if warp_mode_enum is None:
+                return "Warp mode selection is unavailable on this client."
+            normalized = mode.lower()
+            selection = getattr(warp_mode_enum, normalized, None)
+            valid_modes = [
+                name
+                for name in ("physics", "rails", "none")
+                if hasattr(warp_mode_enum, name)
+            ]
+            if selection is None:
+                candidate_list = ", ".join(valid_modes) if valid_modes else "physics, rails, none"
+                return f"Unsupported warp mode '{mode}'. Valid options: {candidate_list}."
+            try:
+                tw.mode = selection
+            except Exception as exc:
+                return f"Failed to set warp mode '{mode}': {exc}"
+
+        try:
+            tw.rate = float(rate)
+        except Exception as exc:
+            return f"Failed to set warp rate to {rate}: {exc}"
+
+        return f"Timewarp rate set to {float(tw.rate)}."
+    except Exception as exc:  # pragma: no cover - best-effort helper
+        return f"Failed to adjust timewarp: {exc}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
