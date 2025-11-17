@@ -259,7 +259,10 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
       enable_sas: If true, toggle SAS on before setting the mode.
 
     Returns:
-      Human-readable status string (success or error)."""
+      Human-readable status string (success or error). Includes whether the requested orientation was aligned.
+
+    Notes:
+      - Best-effort unpauses, lets SAS align, and then re-applies the pause so you can change heading while the game starts paused."""
     return flight_and_control.set_sas_mode(address=address, mode=mode, enable_sas=enable_sas, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 

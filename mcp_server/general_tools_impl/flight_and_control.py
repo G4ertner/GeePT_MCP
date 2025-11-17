@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 
 from ..utils.krpc_utils import readers
-from ..utils.krpc_helpers import open_connection
+from ..utils.krpc_helpers import (
+    best_effort_pause,
+    best_effort_paused_state,
+    best_effort_unpause,
+    open_connection,
+)
 
 
 def get_flight_snapshot(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -78,7 +83,7 @@ def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50
 
 def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """
-    Set SAS on/off and select an SAS hold mode.
+    Set SAS on/off and select an SAS hold mode while keeping the simulation running just long enough to align.
 
     Args:
       mode: One of the SAS modes (stability_assist, prograde, retrograde, normal, anti_normal,
@@ -86,9 +91,18 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
       enable_sas: If true, toggle SAS on before setting the mode.
 
     Returns:
-      Human-readable status string (success or error).
+      Human-readable status string indicating the final SAS mode and whether an orientation alignment was observed.
+
+    Notes:
+      - Best-effort unpauses before changing SAS and re-pauses after the SAS vector is aligned so you can set a target even while the game starts paused.
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
+    paused_before = best_effort_paused_state(conn)
+    if paused_before is True:
+        try:
+            best_effort_unpause(conn)
+        except Exception:
+            pass
     try:
         sc = conn.space_center
         ctrl = sc.active_vessel.control
@@ -120,10 +134,61 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
             pass
 
         ctrl.sas_mode = sas_enum
-        return f"SAS mode set to {getattr(sas_enum, 'name', key)} (sas={getattr(ctrl, 'sas', enable_sas)})."
+        sas_enabled = getattr(ctrl, "sas", True)
+        aligned = False
+        if sas_enabled:
+            autop = sc.active_vessel.auto_pilot
+            prev_frame = None
+            try:
+                prev_frame = getattr(autop, "reference_frame", None)
+            except Exception:
+                prev_frame = None
+            orbital_frame = None
+            try:
+                orbital_frame = sc.active_vessel.orbital_reference_frame
+            except Exception:
+                orbital_frame = None
+            try:
+                if orbital_frame is not None:
+                    autop.reference_frame = orbital_frame
+            except Exception:
+                pass
+            try:
+                autop.engage()
+                try:
+                    autop.sas = True
+                except Exception:
+                    pass
+                try:
+                    autop.sas_mode = sas_enum
+                except Exception:
+                    pass
+                autop.wait()
+                aligned = True
+            except Exception:
+                pass
+            finally:
+                try:
+                    autop.reference_frame = prev_frame
+                except Exception:
+                    pass
+                try:
+                    autop.disengage()
+                except Exception:
+                    pass
+
+        status = f"SAS mode set to {getattr(sas_enum, 'name', key)} (sas={sas_enabled})."
+        if sas_enabled:
+            status += " Orientation aligned." if aligned else " Orientation alignment not confirmed."
+        return status
     except Exception as e:
         return f"Failed to set SAS mode: {e}"
     finally:
+        if paused_before is True:
+            try:
+                best_effort_pause(conn)
+            except Exception:
+                pass
         try:
             conn.close()
         except Exception:
