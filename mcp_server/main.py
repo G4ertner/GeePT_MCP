@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -28,8 +29,40 @@ else:
     from . import executor_tools  # noqa: F401 - register execute_script tool
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the GeePT FastMCP server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="Transport to serve (stdio by default)",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Host for SSE/HTTP transports (defaults to FastMCP settings)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port for SSE/HTTP transports (defaults to FastMCP settings)",
+    )
+    parser.add_argument(
+        "--mount-path",
+        default=None,
+        help="Optional mount path for SSE transport",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    mcp.run()
+    args = _parse_args()
+    if args.host:
+        mcp.settings.host = args.host
+    if args.port:
+        mcp.settings.port = args.port
+    mcp.run(transport=args.transport, mount_path=args.mount_path)
 
 
 if __name__ == "__main__":
