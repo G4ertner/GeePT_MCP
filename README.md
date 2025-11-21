@@ -134,6 +134,12 @@ get_snippets_usage — (resource://snippets/usage)
 
 On top of that, the MCP server comes with a whole set of hardcoded tools your LLM can easily call to interact with the game. This avoids your LLM having to write out code for simple commands.
 
+### User injection messages
+
+- Start the server in streamable HTTP mode when you want to accept injection messages over HTTP: `uv run -m mcp_server.main --transport streamable-http --host 0.0.0.0 --port 8000`.
+- Post messages to `POST /runs/<run_id>/inject` with a JSON body like `{ "message": "Warn me if TWR drops" }`. The next tool response for that run will append `User injection message: ...` once. Streamable HTTP clients can reuse their `mcp-session-id` header as `run_id`; stdio use cases can target the default run id `default`.
+- A helper UI is available at `uv run -m mcp_server.injection_ui --run-id <run_id> [--server-url http://127.0.0.1:8000]` for quickly typing and sending messages.
+
 #### 🧭 Connection & Save Management
 - `krpc_get_status` — Checks connectivity to kRPC and reports version.
 - `save_llm_checkpoint` — Creates a namespaced save (non-quicksave).
