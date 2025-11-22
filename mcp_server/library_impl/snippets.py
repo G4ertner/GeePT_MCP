@@ -232,12 +232,12 @@ def snippets_search_and_resolve_impl(query: str, k: int = 10, mode: str = "hybri
 
     Returns JSON with top result metadata and bundle fields.
     """
-    items = json.loads(snippets_search(query, k=k, mode=mode, and_logic=and_logic, category=category, exclude_restricted=exclude_restricted, rerank=rerank)).get("items", [])
+    items = json.loads(snippets_search_impl(query, k=k, mode=mode, and_logic=and_logic, category=category, exclude_restricted=exclude_restricted, rerank=rerank)).get("items", [])
     if not items:
         return json.dumps({"ok": False, "error": "No results"})
     top = items[0]
     rid = top.get("id")
-    res = json.loads(snippets_resolve(id=rid, name=None, max_bytes=max_bytes, max_nodes=max_nodes))
+    res = json.loads(snippets_resolve_impl(id=rid, name=None, max_bytes=max_bytes, max_nodes=max_nodes))
     res["top"] = top
     return json.dumps(res)
 

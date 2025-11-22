@@ -141,8 +141,25 @@ When to use:
   - Scheduling burns, warp decisions, or synchronizing UT across tools.
 
 Returns:
-  JSON: { universal_time_s, mission_time_s }."""
+  JSON: { universal_time_s, mission_time_s, timewarp_rate?, timewarp_mode? }."""
     return status_and_time.get_time_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
+
+
+@mcp.tool()
+def set_timewarp_rate(address: str, rate: float, mode: str | None = None, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
+    """Set the current timewarp rate (and optionally switch warp mode).
+
+When to use:
+  - Adjust how fast KSP advances time when waiting on long events.
+  - Reset the time speed after a fire-and-forget warp_to call once you verify UT with get_time_status.
+
+Args:
+  rate: Desired timewarp rate; 1.0 is realtime, >1 is warp (0 stops time).
+  mode: Optional name of the warp mode to select ('physics', 'rails', 'none').
+
+Returns:
+  Human-readable status string describing what was set or why the change failed."""
+    return status_and_time.set_timewarp_rate(address=address, rate=rate, mode=mode, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
 # 🌍🧭 Environment & surface 🌍🧭 ---------------------------------------------------------------------
@@ -242,7 +259,11 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
       enable_sas: If true, toggle SAS on before setting the mode.
 
     Returns:
-      Human-readable status string (success or error)."""
+      Human-readable status string (success or error). Includes whether the requested orientation was aligned.
+
+    Notes:
+      - Best-effort unpauses, lets SAS align, and then re-applies the pause so you can change heading while the game starts paused.
+      - The tool always pauses the game after alignment so navigation stays predictable even if you were running unpaused."""
     return flight_and_control.set_sas_mode(address=address, mode=mode, enable_sas=enable_sas, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
 
@@ -624,7 +645,13 @@ def warp_to(address: str, ut: float, lead_time_s: float = 0.0, rpc_port: int = 5
       lead_time_s: Seconds to arrive before UT (e.g., half burn time)
 
     Returns:
-      Human‑readable status string, or a message if unsupported.
+      Human-readable status string, or a message if unsupported.
+
+    Notes:
+      - The underlying kRPC warp call is fire-and-forget. If the tool hits the 60s timeout,
+        KSP will continue warping even though the tool never received confirmation.
+      - After issuing a warp_to, call get_time_status (check time) and, if needed, use set_timewarp_rate
+        to reset the warp speed before running more commands.
     """
     return maneuver_nodes.warp_to(address=address, ut=ut, lead_time_s=lead_time_s, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 

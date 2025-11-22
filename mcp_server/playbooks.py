@@ -40,3 +40,8 @@ def get_launch_ascent_circ_playbook() -> str:
 @mcp.resource("resource://playbooks/state-checkpoint-rollback")
 def get_state_checkpoint_playbook() -> str:
     return _read("state-checkpoint-rollback")
+
+
+@mcp.resource("resource://playbooks/orbital-return-playbook")
+def get_orbital_return_playbook() -> str:
+    return _read("orbital-return-playbook")
