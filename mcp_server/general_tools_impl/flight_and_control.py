@@ -98,11 +98,10 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
     """
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
     paused_before = best_effort_paused_state(conn)
-    if paused_before is True:
-        try:
-            best_effort_unpause(conn)
-        except Exception:
-            pass
+    try:
+        best_effort_unpause(conn)
+    except Exception:
+        pass
     try:
         sc = conn.space_center
         ctrl = sc.active_vessel.control
@@ -184,11 +183,10 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
     except Exception as e:
         return f"Failed to set SAS mode: {e}"
     finally:
-        if paused_before is True:
-            try:
-                best_effort_pause(conn)
-            except Exception:
-                pass
+        try:
+            best_effort_pause(conn)
+        except Exception:
+            pass
         try:
             conn.close()
         except Exception:

@@ -118,16 +118,17 @@ The MCP server wraps the MediaWiki API and the locally indexed kRPC documentatio
 
 The server ships with severeal playbooks to give your LLM a headstart on how to use the MCP's tools and execute common maneuvers:
 
-get_maneuver_node_playbook — (resource://playbooks/maneuver-node)
-get_blueprint_usage_playbook — (resource://playbooks/vessel-blueprint-usage)
-get_flight_control_playbook — (resource://playbooks/flight-control)
-get_rendezvous_playbook — (resource://playbooks/rendezvous-docking)
-get_launch_ascent_circ_playbook — (resource://playbooks/launch-ascent-circularize)
-get_state_checkpoint_playbook — (resource://playbooks/state-checkpoint-rollback)
-get_scribe_master_prompt_resource — (resource://prompts/scribe-master)
-get_latest_blueprint — (resource://blueprints/latest)
-get_last_svg — (resource://blueprints/last-diagram.svg)
-get_last_png — (resource://blueprints/last-diagram.png)
+get_maneuver_node_playbook - (resource://playbooks/maneuver-node)
+get_blueprint_usage_playbook - (resource://playbooks/vessel-blueprint-usage)
+get_flight_control_playbook - (resource://playbooks/flight-control)
+get_rendezvous_playbook - (resource://playbooks/rendezvous-docking)
+get_launch_ascent_circ_playbook - (resource://playbooks/launch-ascent-circularize)
+get_state_checkpoint_playbook - (resource://playbooks/state-checkpoint-rollback)
+get_orbital_return_playbook - (resource://playbooks/orbital-return-playbook)
+get_scribe_master_prompt_resource - (resource://prompts/scribe-master)
+get_latest_blueprint - (resource://blueprints/latest)
+get_last_svg - (resource://blueprints/last-diagram.svg)
+get_last_png - (resource://blueprints/last-diagram.png)
 get_snippets_usage — (resource://snippets/usage)
 
 ### Additional Tools
