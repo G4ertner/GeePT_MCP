@@ -76,23 +76,49 @@ def _create_injection_block(message: str) -> TextContent:
     return TextContent(type="text", text=f"\n\nUser injection message: {message}")
 
 
+def _merge_injection_into_content(blocks: Sequence[ContentBlock], message: str) -> list[ContentBlock]:
+    """
+    Fold the injection text into the first text block when possible, otherwise append a new block.
+    This keeps a single content item for clients that only inspect the first block.
+    """
+    merged = list(blocks)
+    injection_suffix = f"\n\nUser injection message: {message}"
+
+    if merged and isinstance(merged[0], TextContent):
+        merged[0] = TextContent(type="text", text=f"{merged[0].text}{injection_suffix}")
+        return merged
+
+    merged.append(_create_injection_block(message))
+    return merged
+
+
 def append_injection_to_result(
     result: Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict] | dict,
     message: str,
 ) -> Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict]:
     """Append an injection note to the given tool result."""
-    injection_block = _create_injection_block(message)
+
+    def _inject_into_structured(structured: dict | None) -> dict | None:
+        """Best-effort add the injection to structured output when it is a simple string result."""
+        if structured is None:
+            return None
+        if isinstance(structured, dict) and isinstance(structured.get("result"), str):
+            updated = structured.copy()
+            updated["result"] = f"{updated['result']}\n\nUser injection message: {message}"
+            return updated
+        return structured
 
     if isinstance(result, tuple) and len(result) == 2:
         unstructured, structured = result
-        augmented = list(unstructured) + [injection_block]
-        return augmented, structured
+        merged = _merge_injection_into_content(unstructured, message)
+        return merged, _inject_into_structured(structured)
 
     if isinstance(result, dict):
         base_text = json.dumps(result, indent=2)
-        return [TextContent(type="text", text=base_text), injection_block], result
+        merged = _merge_injection_into_content([TextContent(type="text", text=base_text)], message)
+        return merged, _inject_into_structured(result)
 
-    return list(result) + [injection_block]
+    return _merge_injection_into_content(result, message)
 
 
 class InjectionAwareToolManager(ToolManager):
@@ -142,6 +168,15 @@ class InjectionAwareToolManager(ToolManager):
 
         run_id = self._run_id_getter(context)
         injection = await self._injection_store.pop_message(run_id)
+        # Fallback: allow global/default injections to apply to any session if none queued for the session
+        if not injection and run_id != INJECTION_DEFAULT_RUN_ID:
+            injection = await self._injection_store.pop_message(INJECTION_DEFAULT_RUN_ID)
+            if injection:
+                logger.info(
+                    "Applying default injection message to run_id=%s (no session-specific injection queued)",
+                    run_id,
+                )
+
         if not injection:
             return result
 
