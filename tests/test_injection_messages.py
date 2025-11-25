@@ -4,6 +4,7 @@ import json
 
 import pytest
 from mcp.types import ContentBlock, TextContent
+from mcp.server.fastmcp.tools.tool_manager import ToolManager
 
 from mcp_server.injection import (
     INJECTION_DEFAULT_RUN_ID,
@@ -72,3 +73,47 @@ async def test_tool_manager_appends_injection_once() -> None:
     second_result = await manager.call_tool("demo_tool", {}, context=None, convert_result=True)
     second_blocks = list(second_result[0] if isinstance(second_result, tuple) else second_result)
     assert all("queued" not in getattr(block, "text", "") for block in second_blocks)
+
+
+async def test_call_tool_uses_default_timeout_for_sync(monkeypatch) -> None:
+    captured: dict[str, float | None] = {}
+
+    async def fake_run_blocking(fn, *args, timeout_sec=None, **kwargs):
+        captured["timeout"] = timeout_sec
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr("mcp_server.injection.run_blocking", fake_run_blocking)
+
+    tm = ToolManager()
+
+    def demo_sync() -> str:
+        return "ok"
+
+    tm.add_tool(demo_sync, name="krpc_get_status")
+    manager = InjectionAwareToolManager.from_existing(tm, injection_store=InjectionStore())
+
+    await manager.call_tool("krpc_get_status", {}, context=None, convert_result=True)
+
+    assert captured["timeout"] == 60.0
+
+
+async def test_call_tool_exempts_start_jobs(monkeypatch) -> None:
+    captured: dict[str, float | None] = {}
+
+    async def fake_run_blocking(fn, *args, timeout_sec=None, **kwargs):
+        captured["timeout"] = timeout_sec
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr("mcp_server.injection.run_blocking", fake_run_blocking)
+
+    tm = ToolManager()
+
+    def job_starter() -> str:
+        return "ok"
+
+    tm.add_tool(job_starter, name="start_part_tree_job")
+    manager = InjectionAwareToolManager.from_existing(tm, injection_store=InjectionStore())
+
+    await manager.call_tool("start_part_tree_job", {}, context=None, convert_result=True)
+
+    assert captured["timeout"] is None

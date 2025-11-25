@@ -6,13 +6,17 @@ from collections import deque
 from typing import Callable, Deque, Sequence
 
 import anyio
+import asyncio
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from mcp.server.fastmcp.server import Context, FastMCP
 from mcp.server.fastmcp.tools.tool_manager import ToolManager
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp.types import ContentBlock, TextContent
+
+from .utils.async_utils import run_blocking
 
 logger = logging.getLogger(__name__)
 
@@ -159,12 +163,40 @@ class InjectionAwareToolManager(ToolManager):
         context: Context | None = None,
         convert_result: bool = False,
     ) -> Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict]:
-        result = await super().call_tool(
-            name,
-            arguments,
-            context=context,
-            convert_result=convert_result,
-        )
+        tool = self.get_tool(name)
+        if tool is None:
+            raise ToolError(f"Unknown tool: {name}")
+
+        # Long-running job starters and execute_script manage their own timeouts.
+        no_timeout_tools = {
+            "start_part_tree_job",
+            "start_stage_plan_job",
+            "start_execute_script_job",
+            "execute_script",
+        }
+
+        if tool.is_async:
+            result = await super().call_tool(
+                name,
+                arguments,
+                context=context,
+                convert_result=convert_result,
+            )
+        else:
+            def _call_sync() -> Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict] | dict:
+                args_pre = tool.fn_metadata.pre_parse_json(arguments)
+                parsed = tool.fn_metadata.arg_model.model_validate(args_pre)
+                parsed_dict = parsed.model_dump_one_level()
+                if tool.context_kwarg:
+                    parsed_dict[tool.context_kwarg] = context
+                res = tool.fn(**parsed_dict)
+                return tool.fn_metadata.convert_result(res) if convert_result else res
+
+            hard_timeout = None if name in no_timeout_tools else 60.0
+            try:
+                result = await run_blocking(_call_sync, timeout_sec=hard_timeout)
+            except asyncio.TimeoutError as exc:
+                raise ToolError(f"Tool '{name}' exceeded {hard_timeout}s timeout") from exc
 
         run_id = self._run_id_getter(context)
         injection = await self._injection_store.pop_message(run_id)

@@ -72,12 +72,18 @@ Each builder has its own `pyproject.toml`, README, and duplicated helper modules
 
 ### MCP server layout
 
-- `mcp_server/main.py` — wires up the FastMCP server and imports all tool/resource surfaces.
-- `mcp_server/executor_tools/` — execute_script implementations, background jobs, and artifact helpers (exposed via `mcp_server/executor_tools.py`).
-- `mcp_server/libraries/` + `mcp_server/libraries.py` — kRPC docs search, KSP wiki access, and snippet tooling with the public MCP entry points.
-- `mcp_server/general_tools.py` — tool entry points grouped by category; implementations live under `mcp_server/general_tools_impl/`.
-- `mcp_server/playbooks/` + `mcp_server/playbooks.py` — markdown playbooks served as MCP resources.
-- `mcp_server/utils/` — shared helpers (`krpc_utils`, `helper_utils`, `physics_utils`, etc.) used across the server packages.
+- `mcp_server/main.py` - wires up the FastMCP server and imports all tool/resource surfaces.
+- `mcp_server/executor_tools/` - execute_script implementations, background jobs, and artifact helpers (exposed via `mcp_server/executor_tools.py`).
+- `mcp_server/libraries/` + `mcp_server/libraries.py` - kRPC docs search, KSP wiki access, and snippet tooling with the public MCP entry points.
+- `mcp_server/general_tools.py` - tool entry points grouped by category; implementations live under `mcp_server/general_tools_impl/`.
+- `mcp_server/playbooks/` + `mcp_server/playbooks.py` - markdown playbooks served as MCP resources.
+- `mcp_server/utils/` - shared helpers (`krpc_utils`, `helper_utils`, `physics_utils`, etc.) used across the server packages.
+
+### Tool runtime behavior (timeouts)
+
+- Sync tools now run off the event loop in a worker thread with a 60s hard cap to avoid freezing the server when kRPC hangs.
+- Long-running job starters (`start_part_tree_job`, `start_stage_plan_job`, `start_execute_script_job`) and `execute_script` are exempt; they rely on their own watchdogs.
+- If a tool might exceed 60s (e.g., part tree/stage plan), prefer the start_* job variants to stream logs and stay responsive.
 
 ## Core capabilities
 
@@ -139,7 +145,7 @@ On top of that, the MCP server comes with a whole set of hardcoded tools your LL
 
 - Start the server in streamable HTTP mode when you want to accept injection messages over HTTP: `uv run -m mcp_server.main --transport streamable-http --host 0.0.0.0 --port 8000`.
 - Post messages to `POST /runs/<run_id>/inject` with a JSON body like `{ "message": "Warn me if TWR drops" }`. The next tool response for that run will append `User injection message: ...` once. Streamable HTTP clients can reuse their `mcp-session-id` header as `run_id`; stdio use cases can target the default run id `default`.
-- A helper UI is available at `uv run -m mcp_server.injection_ui --run-id <run_id> [--server-url http://127.0.0.1:8000]` for quickly typing and sending messages.
+- A helper UI is available at `uv run -m mcp_server.injection_ui --run-id <run_id> [--server-url http://127.0.0.1:8000]` for quickly typing and sending messages. When in Streamable HTTP mode, you can simply pass `--run-id default`; if no session-specific message is queued, the default queue will be applied to the next tool call for any session.
 
 #### 🧭 Connection & Save Management
 - `krpc_get_status` — Checks connectivity to kRPC and reports version.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .krpc_utils.client import connect_to_game
+from .async_utils import run_blocking
 
 
 def open_connection(
@@ -17,6 +18,33 @@ def open_connection(
         stream_port=stream_port,
         name=name,
         timeout=timeout,
+    )
+
+
+async def async_open_connection(
+    address: str,
+    rpc_port: int = 50000,
+    stream_port: int = 50001,
+    name: str | None = None,
+    timeout: float = 5.0,
+    *,
+    hard_timeout_sec: float | None = 60.0,
+):
+    """
+    Async helper that opens a kRPC connection off the event loop with a hard timeout.
+
+    Args mirror open_connection; `timeout` is the socket-level timeout, `hard_timeout_sec`
+    caps total wall time for establishing the connection. Pass None to disable the cap.
+    """
+
+    return await run_blocking(
+        connect_to_game,
+        address,
+        rpc_port=rpc_port,
+        stream_port=stream_port,
+        name=name,
+        timeout=timeout,
+        timeout_sec=hard_timeout_sec,
     )
 
 
