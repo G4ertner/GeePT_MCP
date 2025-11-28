@@ -52,6 +52,7 @@ class JobState:
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     cancel_requested: bool = False
+    log_stream_warning: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         """Serialize the job state with ISO timestamps for JSON transport."""
@@ -66,6 +67,7 @@ class JobState:
             "error": self.error,
             "metadata": dict(self.metadata),
             "cancel_requested": self.cancel_requested,
+            "log_stream_warning": self.log_stream_warning,
         }
 
 
@@ -185,7 +187,25 @@ class JobRegistry:
             state = self._jobs.get(job_id)
             if not state:
                 return
+            if self._is_transient_stream_error(message):
+                state.log_stream_warning = True
+                return
             state.logs.append(entry)
+
+    @staticmethod
+    def _is_transient_stream_error(message: str) -> bool:
+        msg = message.lower()
+        if "connectionreseterror" in msg:
+            return True
+        if "forcibly closed by the remote host" in msg:
+            return True
+        if "connection reset by peer" in msg:
+            return True
+        if "_call_connection_lost" in msg:
+            return True
+        if "broken pipe" in msg:
+            return True
+        return False
 
     def set_result_resource(self, job_id: str, uri: str) -> None:
         with self._lock:
@@ -216,6 +236,7 @@ class JobRegistry:
                 result_resource=state.result_resource,
                 error=state.error,
                 metadata=dict(state.metadata),
+                log_stream_warning=state.log_stream_warning,
             )
 
     def wait_for(self, job_id: str, timeout: Optional[float] = None) -> None:

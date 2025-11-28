@@ -100,35 +100,117 @@ def set_timewarp_rate(address: str, rate: float, mode: str | None = None, rpc_po
     conn = open_connection(address, rpc_port, stream_port, name, timeout)
     try:
         sc = conn.space_center
+        # Newer kRPC builds expose a Warp object; older builds only expose warp_factor properties.
         tw = getattr(sc, "warp", None)
-        if tw is None:
-            return "Timewarp controls are not supported by this kRPC client."
 
-        if mode is not None:
-            warp_mode_enum = getattr(sc, "WarpMode", None)
-            if warp_mode_enum is None:
-                return "Warp mode selection is unavailable on this client."
-            normalized = mode.lower()
-            selection = getattr(warp_mode_enum, normalized, None)
-            valid_modes = [
-                name
-                for name in ("physics", "rails", "none")
-                if hasattr(warp_mode_enum, name)
-            ]
-            if selection is None:
-                candidate_list = ", ".join(valid_modes) if valid_modes else "physics, rails, none"
-                return f"Unsupported warp mode '{mode}'. Valid options: {candidate_list}."
+        def _set_via_warp_object() -> str:
+            if tw is None:
+                return ""
+
+            if mode is not None:
+                warp_mode_enum = getattr(sc, "WarpMode", None)
+                if warp_mode_enum is None:
+                    return "Warp mode selection is unavailable on this client."
+                normalized = mode.lower()
+                selection = getattr(warp_mode_enum, normalized, None)
+                valid_modes = [
+                    name
+                    for name in ("physics", "rails", "none")
+                    if hasattr(warp_mode_enum, name)
+                ]
+                if selection is None:
+                    candidate_list = ", ".join(valid_modes) if valid_modes else "physics, rails, none"
+                    return f"Unsupported warp mode '{mode}'. Valid options: {candidate_list}."
+                try:
+                    tw.mode = selection
+                except Exception as exc:
+                    return f"Failed to set warp mode '{mode}': {exc}"
+
             try:
-                tw.mode = selection
+                tw.rate = float(rate)
             except Exception as exc:
-                return f"Failed to set warp mode '{mode}': {exc}"
+                return f"Failed to set warp rate to {rate}: {exc}"
 
-        try:
-            tw.rate = float(rate)
-        except Exception as exc:
-            return f"Failed to set warp rate to {rate}: {exc}"
+            return f"Timewarp rate set to {float(tw.rate)}."
 
-        return f"Timewarp rate set to {float(tw.rate)}."
+        def _set_factor(
+            *,
+            target_rate: float,
+            rails: bool,
+        ) -> tuple[bool, str]:
+            factor_attr = "rails_warp_factor" if rails else "physics_warp_factor"
+            max_attr = "maximum_rails_warp_factor" if rails else None
+
+            if not hasattr(sc, factor_attr):
+                return False, f"{'Rails' if rails else 'Physics'} warp is not supported on this client."
+
+            max_factor = 3 if not rails else None
+            if rails and hasattr(sc, max_attr):
+                try:
+                    max_factor = int(getattr(sc, max_attr))
+                except Exception:
+                    max_factor = None
+
+            if max_factor is None:
+                # Best-effort default rails max when client does not report it
+                max_factor = 7
+
+            best_factor = None
+            best_rate = None
+            for f in range(max_factor, -1, -1):
+                try:
+                    setattr(sc, factor_attr, f)
+                except Exception:
+                    continue
+                try:
+                    current_rate = float(getattr(sc, "warp_rate"))
+                except Exception:
+                    current_rate = None
+                if current_rate is None:
+                    continue
+                best_factor = f
+                best_rate = current_rate
+                if current_rate <= target_rate:
+                    break
+
+            if best_factor is None:
+                return False, f"Failed to set {'rails' if rails else 'physics'} warp."
+
+            return True, (
+                f"{'Rails' if rails else 'Physics'} warp factor set to {best_factor} "
+                f"(rate {best_rate:.3g}). Requested {target_rate}."
+            )
+
+        via_warp = _set_via_warp_object()
+        if via_warp:
+            return via_warp
+
+        normalized_mode = mode.lower() if isinstance(mode, str) else None
+        prefer_rails = normalized_mode in (None, "rails")
+        prefer_physics = normalized_mode == "physics"
+
+        # Try preferred path first, then fallback to the other if available.
+        if prefer_rails:
+            ok, msg = _set_factor(target_rate=float(rate), rails=True)
+            if ok:
+                return msg
+            if not prefer_physics:
+                return msg
+
+        if prefer_physics or not prefer_rails:
+            ok, msg = _set_factor(target_rate=float(rate), rails=False)
+            if ok:
+                return msg
+            if prefer_physics:
+                return msg
+
+        # Last fallback: try whichever path works.
+        for rails_flag in (True, False):
+            ok, msg = _set_factor(target_rate=float(rate), rails=rails_flag)
+            if ok:
+                return msg
+
+        return "Timewarp controls are not available on this kRPC client."
     except Exception as exc:  # pragma: no cover - best-effort helper
         return f"Failed to adjust timewarp: {exc}"
     finally:

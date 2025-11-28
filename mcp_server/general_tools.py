@@ -80,7 +80,6 @@ Safeguards:
 Returns JSON: { ok, loaded?: save_name, error? }."""
     return connection_and_save.load_llm_checkpoint(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, save_name=save_name, require_llm_prefix=require_llm_prefix, pause_after=pause_after)
 
-
 @mcp.tool()
 def quicksave(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Save a quicksave (SpaceCenter.quicksave()).
@@ -88,7 +87,6 @@ def quicksave(address: str, rpc_port: int = 50000, stream_port: int = 50001, nam
 Notes:
   - This overwrites the game's single quicksave slot. Prefer save_llm_checkpoint to create namespaced saves."""
     return connection_and_save.quicksave(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
-
 
 @mcp.tool()
 def quickload(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, pause_after: bool = True) -> str:
@@ -113,7 +111,6 @@ Returns:
   JSON: { vessel, environment, flight, orbit, time, attitude, aero, maneuver_nodes }."""
     return status_and_time.get_status_overview(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_vessel_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Basic vessel info for the active craft.
@@ -132,7 +129,6 @@ Returns:
   JSON string: { name, mass_kg, throttle, situation }"""
     return status_and_time.get_vessel_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_time_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Time context for the current save.
@@ -143,7 +139,6 @@ When to use:
 Returns:
   JSON: { universal_time_s, mission_time_s, timewarp_rate?, timewarp_mode? }."""
     return status_and_time.get_time_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
-
 
 @mcp.tool()
 def set_timewarp_rate(address: str, rate: float, mode: str | None = None, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -184,7 +179,6 @@ Returns:
   temperature_k?, atmosphere, atmosphere_depth_m }."""
     return environment_and_surface.get_environment_info(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_surface_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Surface context at current location: latitude/longitude, surface altitude, terrain height,
@@ -212,7 +206,6 @@ Returns:
   g_force, angle_of_attack_deg, pitch_deg, roll_deg, heading_deg }."""
     return flight_and_control.get_flight_snapshot(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_attitude_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Attitude/control state for the active vessel.
@@ -226,7 +219,6 @@ def get_attitude_status(address: str, rpc_port: int = 50000, stream_port: int = 
     autopilot_target_heading, autopilot_target_roll, speed_mode? }."""
     return flight_and_control.get_attitude_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_action_groups_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Action group toggles.
@@ -238,7 +230,6 @@ Returns:
   JSON: { sas, rcs, lights, gear, brakes, abort, custom_1..custom_10 }."""
     return flight_and_control.get_action_groups_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Active camera parameters when available: mode, pitch, heading, distance, and limits.
@@ -247,7 +238,6 @@ def get_camera_status(address: str, rpc_port: int = 50000, stream_port: int = 50
       JSON: { available, mode?, pitch_deg?, heading_deg?, distance_m?,
       min_pitch_deg?, max_pitch_deg?, min_distance_m?, max_distance_m? }."""
     return flight_and_control.get_camera_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
-
 
 @mcp.tool()
 def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -265,7 +255,6 @@ def set_sas_mode(address: str, mode: str, enable_sas: bool = True, rpc_port: int
       - Best-effort unpauses, lets SAS align, and then re-applies the pause so you can change heading while the game starts paused.
       - The tool always pauses the game after alignment so navigation stays predictable even if you were running unpaused."""
     return flight_and_control.set_sas_mode(address=address, mode=mode, enable_sas=enable_sas, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
-
 
 @mcp.tool()
 def get_screenshot(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, *, scale: int = 1) -> str:
@@ -297,7 +286,6 @@ Returns:
   JSON: { dynamic_pressure_pa, mach, atmosphere_density_kg_m3, drag?, lift? }."""
     return aerodynamics_and_engines.get_aero_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_engine_status(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Per-engine status for the active vessel.
@@ -325,7 +313,6 @@ Returns:
   JSON: { vessel_totals: { amount, max }, production: { solar?, rtg?, fuel_cells? },
   consumers: { wheels?, antennas?, lights? }, notes?: [..] }."""
     return power_and_resources.get_power_status(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
-
 
 @mcp.tool()
 def get_resource_breakdown(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -356,7 +343,6 @@ Returns:
           modules: [...], resources: {R:{amount,max}}, crossfeed? } ] }"""
     return blueprints_parts_and_staging.get_part_tree(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_vessel_blueprint(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Idealized vessel blueprint combining meta, stage plan, engines, control capabilities, and part tree.
@@ -368,7 +354,6 @@ Returns:
   JSON with sections: meta, stages, engines, control_capabilities, parts, geometry, notes."""
     return blueprints_parts_and_staging.get_vessel_blueprint(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 
-
 @mcp.tool()
 def get_blueprint_ascii(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
     """Compact ASCII schematic/summary of the current vessel by stage.
@@ -376,7 +361,6 @@ def get_blueprint_ascii(address: str, rpc_port: int = 50000, stream_port: int = 
 Includes a header and a per-stage table with engine counts, Δv, TWR,
 and key part category counts (Eng/Tank/Dec/Par/Dock)."""
     return blueprints_parts_and_staging.get_blueprint_ascii(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
-
 
 @mcp.tool()
 def get_stage_plan(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0, environment: str = 'current') -> str:
@@ -400,7 +384,6 @@ Returns:
   JSON: { stages: [ { stage, engines, max_thrust_n, combined_isp_s?, prop_mass_kg,
   m0_kg, m1_kg, delta_v_m_s?, twr_surface? } ] }."""
     return blueprints_parts_and_staging.get_stage_plan(address=address, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout, environment=environment)
-
 
 @mcp.tool()
 def get_staging_info(address: str, rpc_port: int = 50000, stream_port: int = 50001, name: str | None = None, timeout: float = 5.0) -> str:
@@ -652,6 +635,7 @@ def warp_to(address: str, ut: float, lead_time_s: float = 0.0, rpc_port: int = 5
         KSP will continue warping even though the tool never received confirmation.
       - After issuing a warp_to, call get_time_status (check time) and, if needed, use set_timewarp_rate
         to reset the warp speed before running more commands.
+      - **Important**: Warps will only work outside of an atmosphere. If you try to warp while being below 70 km, nothing will happen.
     """
     return maneuver_nodes.warp_to(address=address, ut=ut, lead_time_s=lead_time_s, rpc_port=rpc_port, stream_port=stream_port, name=name, timeout=timeout)
 

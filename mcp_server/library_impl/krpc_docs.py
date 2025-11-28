@@ -81,6 +81,7 @@ def get_job_status_impl(job_id: str) -> str:
             - status: PENDING | RUNNING | SUCCEEDED | FAILED | CANCELLED (or UNKNOWN when not found)
             - created_at / started_at / finished_at timestamps (ISO 8601, UTC) when available
             - logs: accumulated stdout/stderr/log entries
+            - log_stream_warning: true when transient log transport errors were suppressed
             - result_resource: resource URI containing the job output, if produced
             - error: error description when failed or unknown
             - metadata: any job-specific metadata stored at creation time
@@ -96,10 +97,12 @@ def get_job_status_impl(job_id: str) -> str:
             "result_resource": None,
             "metadata": {},
             "ok": False,
+            "log_stream_warning": False,
         }
         return json.dumps(payload)
 
     payload = state.as_dict()
+    payload.setdefault("log_stream_warning", False)
     payload["ok"] = state.status not in (JobStatus.FAILED, JobStatus.CANCELLED)
     return json.dumps(payload)
 

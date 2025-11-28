@@ -26,38 +26,6 @@ sys.modules[__name__ + ".job_tools"] = _job_tools
 sys.modules[__name__ + ".jobs"] = _jobs
 sys.modules[__name__ + ".script_jobs"] = _script_jobs
 
-
-# @mcp.tool()
-def execute_script(
-    code: str,
-    address: str,
-    rpc_port: int = 50000,
-    stream_port: int = 50001,
-    name: str | None = None,
-    *,
-    timeout_sec: float | None = None,
-    pause_on_end: bool = True,
-    unpause_on_start: bool = True,
-    allow_imports: bool = False,
-    hard_timeout_sec: float | None = None,
-) -> str:
-    return execute_script_impl(
-        code=code,
-        address=address,
-        rpc_port=rpc_port,
-        stream_port=stream_port,
-        name=name,
-        timeout_sec=timeout_sec,
-        pause_on_end=pause_on_end,
-        unpause_on_start=unpause_on_start,
-        allow_imports=allow_imports,
-        hard_timeout_sec=hard_timeout_sec,
-    )
-
-
-execute_script.__doc__ = execute_script_impl.__doc__
-
-
 @mcp.tool()
 def start_execute_script_job(
     code: str,

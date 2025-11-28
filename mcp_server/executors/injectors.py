@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import builtins
+import importlib.util
 import logging
 import sys as _sys
+import sysconfig
 import time as _time
 import math as _math
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 
@@ -38,11 +41,37 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
             remaining = t_end - now
             _time.sleep(min(0.25, remaining))
 
-    # Logging: configure root logger to stream to stdout with a simple prefix
-    # Route logging to stdout so it's included in transcript
-    logging.basicConfig(level=logging.INFO, format="LOG %(message)s", stream=_sys.stdout)
+    class _SafeStreamHandler(logging.StreamHandler):
+        """Stream handler that tolerates non-encodable characters instead of crashing."""
+
+        def emit(self, record: logging.LogRecord) -> None:  # type: ignore[override]
+            try:
+                msg = self.format(record)
+                stream = self.stream
+                encoding = getattr(stream, "encoding", None) or "utf-8"
+                try:
+                    stream.write(msg)
+                    stream.write(self.terminator)
+                except UnicodeEncodeError:
+                    safe_msg = msg.encode(encoding, errors="replace").decode(encoding, errors="replace")
+                    stream.write(safe_msg)
+                    stream.write(self.terminator)
+                self.flush()
+            except Exception:
+                self.handleError(record)
+
+    # Logging: configure root logger to stream to stdout with a simple prefix.
+    # Clear existing handlers to avoid duplicates when build_globals runs repeatedly.
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    handler = _SafeStreamHandler(_sys.stdout)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("LOG %(message)s"))
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.INFO)
 
     def log(msg: Any):
+        # Handler already enforces safe encoding; keep this wrapper for convenience.
         logging.info(str(msg))
 
     try:
@@ -111,14 +140,73 @@ def build_globals(conn, *, timeout_sec: float | None, allow_imports: bool) -> Tu
     if not allow_imports:
         cleanup["__import__"] = builtins.__import__
 
-        allowed_roots = {"logging"}  # allow common logging without import errors
+        # Allow anything from stdlib or site-packages; only block relative/local imports.
+        paths = sysconfig.get_paths()
+
+        def _safe_dir(key: str) -> Path | None:
+            raw = paths.get(key) or ""
+            if not raw:
+                return None
+            try:
+                return Path(raw).resolve()
+            except Exception:
+                return None
+
+        def _extension_dirs(base: Path | None) -> set[Path]:
+            if base is None:
+                return set()
+
+            candidates = (
+                base / "lib-dynload",
+                base.parent / "lib-dynload",
+                base.parent / "DLLs",
+            )
+            extras: set[Path] = set()
+            for candidate in candidates:
+                try:
+                    resolved = candidate.resolve()
+                except Exception:
+                    continue
+                if resolved.exists():
+                    extras.add(resolved)
+            return extras
+
+        base_dirs = {
+            p
+            for key in ("stdlib", "platstdlib", "purelib", "platlib")
+            if (p := _safe_dir(key))
+        }
+        allowed_dirs = set(base_dirs)
+        for base_dir in base_dirs:
+            allowed_dirs.update(_extension_dirs(base_dir))
+
+        def _is_allowed_origin(origin: str | None) -> bool:
+            if not origin:
+                return True  # builtins and namespace packages
+            if origin in {"built-in", "frozen"}:
+                return True
+            origin_path = Path(origin).resolve()
+            def _under(base: Path) -> bool:
+                return base == origin_path or base in origin_path.parents
+
+            return any(_under(base) for base in allowed_dirs)
 
         def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):  # pragma: no cover
-            root = (name or "").split(".")[0]
-            if root in allowed_roots:
+            if level and level > 0:
+                raise ImportError(
+                    "Relative imports are blocked for this execution. Set allow_imports=true to enable."
+                )
+
+            spec = importlib.util.find_spec(name)
+            if spec is None:
+                # Best-effort: allow unknowns rather than blocking kRPC internals
                 return cleanup["__import__"](name, globals, locals, fromlist, level)
+
+            if _is_allowed_origin(getattr(spec, "origin", None)):
+                return cleanup["__import__"](name, globals, locals, fromlist, level)
+
             raise ImportError(
-                "Imports are disabled for this execution. Set allow_imports=true to enable."
+                "Imports are restricted to stdlib/site-packages. Set allow_imports=true to fully enable."
             )
 
         builtins.__import__ = _restricted_import  # type: ignore

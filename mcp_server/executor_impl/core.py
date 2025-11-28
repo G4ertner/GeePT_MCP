@@ -8,6 +8,7 @@ import sys
 import tempfile
 import subprocess
 import threading
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
@@ -126,7 +127,6 @@ def start_execute_script_job_impl(
 ) -> str:
     """
     Start a background job that runs execute_script with live log streaming.
-
     Usage pattern:
         1. Call start_execute_script_job(...) to enqueue the script; capture the returned job_id.
         2. Poll get_job_status(job_id) for log/print output as the script runs (alternate checks with vessel status tools
@@ -174,6 +174,45 @@ def start_execute_script_job_impl(
     })
 
 
+def _resolve_timeouts(
+    timeout_sec: float | None,
+    hard_timeout_sec: float | None,
+    *,
+    job_handle: Any | None = None,
+) -> tuple[float | None, float | None]:
+    """Ensure the soft timeout is never shorter than the hard watchdog."""
+
+    def _coerce(value: float | None) -> float | None:
+        if value is None:
+            return None
+        f = float(value)
+        if f <= 0:
+            return None
+        return f
+
+    soft = _coerce(timeout_sec)
+    hard = _coerce(hard_timeout_sec)
+
+    if hard is None:
+        return soft, hard
+
+    if soft is None or soft < hard:
+        msg = (
+            "Soft timeout is shorter than the hard watchdog; extending soft deadline "
+            f"to {hard:.1f}s to avoid premature TimeoutError."
+        )
+        if job_handle is not None:
+            try:
+                job_handle.log(f"[execute_script] {msg}")
+            except Exception:
+                pass
+        else:
+            logging.warning(msg)
+        soft = hard
+
+    return soft, hard
+
+
 def _run_execute_script(
     *,
     code: str,
@@ -204,6 +243,11 @@ def _run_execute_script(
             "pause_on_end": bool(pause_on_end),
             "unpause_on_start": bool(unpause_on_start),
         }
+        cfg["timeout_sec"], hard_timeout_sec = _resolve_timeouts(
+            cfg["timeout_sec"],
+            hard_timeout_sec,
+            job_handle=job_handle,
+        )
 
         try:
             py = sys.executable or "python"
